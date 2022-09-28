@@ -1,31 +1,18 @@
-from concurrent.futures import ThreadPoolExecutor
-import threading
-import psutil
-import numpy as np
-import time
 import logging
+import pathlib
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
+import psutil
 from PIL import Image
 from psd_tools import PSDImage
 from psd_tools.constants import BlendMode
 
-import pathlib
+import blendfuncs
 
 dtype = np.float32
-
-def normal(dst, src, out):
-    return src
-
-def multiply(dst, src, out):
-    np.multiply(dst, src, out)
-    return out
-
-def get_blend_func(blend_mode):
-    if blend_mode == BlendMode.NORMAL:
-        return normal
-    if blend_mode == BlendMode.MULTIPLY:
-        return multiply
-    return normal
 
 def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
@@ -68,10 +55,13 @@ def padded_data(layer, channel, size, offset):
     blit(pad, data, np.array(swap(layer.offset)) - np.array(offset))
     return pad
 
-def divide_and_clip(color, alpha):
+def clip(color):
+    np.clip(color, 0, 1, out=color)
+
+def divide(color, alpha):
     with np.errstate(divide='ignore', invalid='ignore'):
-        color = color / alpha
-        return np.clip(color, 0, 1)
+        color /= alpha
+        clip(color)
 
 def composite_layer(layer, size, offset, backdrop=None):
     if not layer.is_visible():
@@ -83,38 +73,37 @@ def composite_layer(layer, size, offset, backdrop=None):
             alpha_src = np.ones(color_src.shape[:2] + (1,), dtype=color_src.dtype)
         return color_src, alpha_src
 
-    color_dst = np.zeros(size + (3,), dtype=dtype)
-    alpha_dst = np.zeros(size + (1,), dtype=dtype)
+    color_dst = None
+    alpha_dst = None
 
     if layer.kind != 'psdimage' and layer.blend_mode == BlendMode.PASS_THROUGH and backdrop:
         color_dst, alpha_dst = backdrop
-
-    color_temp = np.empty(size + (3,), dtype=dtype)
+    else:
+        color_dst = np.zeros(size + (3,), dtype=dtype)
+        alpha_dst = np.zeros(size + (1,), dtype=dtype)
 
     for sublayer in layer:
         data = composite_layer(sublayer, size, offset, (color_dst, alpha_dst))
-
         if data is None:
             continue
         color_src, alpha_src = data
         alpha_src *= sublayer.opacity / 255.0
-        blend_func = get_blend_func(sublayer.blend_mode)
 
         if not sublayer.is_group():
             color_src *= alpha_src
-        blend_src = blend_func(color_dst, color_src, color_temp)
 
-        blend_src = alpha_dst * blend_src + color_src * (1 - alpha_dst)
-        color_dst = blend_src + color_dst * (1 - alpha_src)
+        blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
+        color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
         alpha_dst = alpha_dst + alpha_src - alpha_dst * alpha_src
+
+        clip(color_dst)
+        clip(alpha_dst)
 
     return color_dst, alpha_dst
 
 def composite_tile(psd, size, offset, color, alpha):
     try:
-        s = time.perf_counter()
         tile_color, tile_alpha = composite_layer(psd, size, offset)
-        logging.info(f'{offset}, composite time {time.perf_counter() - s}')
         blit(color, tile_color, offset)
         blit(alpha, tile_alpha, offset)
     except Exception as e:
@@ -143,7 +132,8 @@ def composite(psd):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    file_name = 'H:/Art/temp/test.psd'
+    file_name = 'H:/Art/temp/20220911.psd'
+    #file_name = 'H:/Art/temp/test.psd'
     start = time.perf_counter()
     psd = PSDImage.open(file_name)
     image = composite(psd)
