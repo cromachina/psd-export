@@ -1,7 +1,6 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import multiprocessing as mp
-import multiprocessing.managers as mpm
+import threading
 import psutil
 import numpy as np
 import time
@@ -50,8 +49,20 @@ def swap(a):
     x, y = a
     return y, x
 
+cache_lock = threading.Lock()
+
+def get_cached_layer_data(layer, channel):
+    attr_name = f'_cache_{channel}'
+    with cache_lock:
+        if hasattr(layer, attr_name):
+            return getattr(layer, attr_name)
+        else:
+            data = layer.numpy(channel)
+            setattr(layer, attr_name, data)
+            return data
+
 def padded_data(layer, channel, size, offset):
-    data = layer.numpy(channel)
+    data = get_cached_layer_data(layer, channel)
     if data is None:
         return None
     pad = np.zeros(size + data.shape[2:], dtype=data.dtype)
@@ -116,53 +127,40 @@ def composite_layer(layer, size, offset, backdrop=None):
 
     return color_dst, alpha_dst
 
-def composite_mp_viewport(file_name, size, offset, shared_color, shared_alpha):
-    logging.basicConfig(level=logging.INFO)
+def composite_mp_viewport(psd, size, offset, color, alpha):
     s = time.perf_counter()
-    psd = PSDImage.open(file_name)
     tile_color, tile_alpha = composite_layer(psd, size, offset)
     logging.info(f'{offset}, composite time {time.perf_counter() - s}')
-    s = time.perf_counter()
-    psd_size = swap(psd.size)
-    color = np.ndarray(psd_size + (3,), dtype=dtype, buffer=shared_color.buf)
-    alpha = np.ndarray(psd_size + (1,), dtype=dtype, buffer=shared_alpha.buf)
     blit(color, tile_color, offset)
     blit(alpha, tile_alpha, offset)
-    logging.info(f'{offset}, shared mem blit time {time.perf_counter() - s}')
 
 def composite(file_name):
-    with mp.Pool(processes=4) as pool, mpm.SharedMemoryManager() as manager:
-        pool._processes
+    with ThreadPoolExecutor(max_workers=psutil.cpu_count()) as pool:
         psd = PSDImage.open(file_name)
         size = psd.height, psd.width
 
-        color = np.empty(size + (3,), dtype=dtype)
-        shared_color = manager.SharedMemory(color.nbytes)
-        color = np.ndarray(size + (3,), dtype=dtype, buffer=shared_color.buf)
+        color = np.ndarray(size + (3,), dtype=dtype)
+        alpha = np.ndarray(size + (1,), dtype=dtype)
 
-        alpha = np.empty(size + (1,), dtype=dtype)
-        shared_alpha = manager.SharedMemory(alpha.nbytes)
-        alpha = np.ndarray(size + (1,), dtype=dtype, buffer=shared_alpha.buf)
-
-        tile_height, tile_width = 1024, 1024
+        tile_height, tile_width = 512, 512
         y = 0
         while y < psd.height:
             x = 0
             while x < psd.width:
                 size_y = min(tile_height, psd.height - y)
                 size_x = min(tile_width, psd.width - x)
-                pool.apply_async(composite_mp_viewport, (file_name, (size_y, size_x), (y, x), shared_color, shared_alpha))
+                pool.submit(composite_mp_viewport, psd, (size_y, size_x), (y, x), color, alpha)
                 x += tile_width
             y += tile_height
 
-        pool.close()
-        pool.join()
+        pool.shutdown(wait=True)
 
         image = Image.fromarray(np.uint8(color * 255))
 
         return image
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     # parser = argparse.ArgumentParser()
     # parser.add_argument('file_name')
     # args = parser.parse_args()
