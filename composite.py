@@ -29,20 +29,6 @@ def get_blend_func(blend_mode):
         return multiply
     return normal
 
-def paste_slices(tup):
-    pos, w, max_w = tup
-    wall_min = max(pos, 0)
-    wall_max = min(pos+w, max_w)
-    block_min = -min(pos, 0)
-    block_max = max_w-max(pos+w, max_w)
-    block_max = block_max if block_max != 0 else None
-    return slice(wall_min, wall_max), slice(block_min, block_max)
-
-def paste(dst, src, offset):
-    loc_zip = zip(offset, src.shape, dst.shape)
-    wall_slices, block_slices = zip(*map(paste_slices, loc_zip))
-    dst[wall_slices] = src[block_slices]
-
 def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
 
