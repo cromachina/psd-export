@@ -9,6 +9,7 @@ import psutil
 from PIL import Image
 from psd_tools import PSDImage
 from psd_tools.constants import BlendMode
+from psd_tools.composite import blend
 
 import blendfuncs
 
@@ -61,7 +62,6 @@ def clip(color):
 def divide(color, alpha):
     with np.errstate(divide='ignore', invalid='ignore'):
         color /= alpha
-        clip(color)
 
 def composite_layer(layer, size, offset, backdrop=None):
     if not layer.is_visible():
@@ -93,8 +93,9 @@ def composite_layer(layer, size, offset, backdrop=None):
             color_src *= alpha_src
 
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
+        #alpha_func = blendfuncs.get_alpha_func(sublayer.blend_mode)
         color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
-        alpha_dst = alpha_dst + alpha_src - alpha_dst * alpha_src
+        alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
         clip(color_dst)
         clip(alpha_dst)
@@ -130,10 +131,12 @@ def composite(psd):
         image = Image.fromarray(np.uint8(color * 255))
         return image
 
+file_name = pathlib.Path('H:/Art/temp/test.psd')
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
+    #file_name = pathlib.Path('H:/Art/temp/test.psd')
     file_name = 'H:/Art/temp/20220911.psd'
-    #file_name = 'H:/Art/temp/test.psd'
     start = time.perf_counter()
     psd = PSDImage.open(file_name)
     image = composite(psd)
