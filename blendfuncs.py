@@ -66,36 +66,56 @@ def darken(Cd, Cs, Ad, As):
 def lighten(Cd, Cs, Ad, As):
     return np.maximum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
 
-# SAI Color Burn
+# PS/CSP Color Burn, SAI's is unknown
 def color_burn(Cd, Cs, Ad, As):
     index = Cs == 0
-    index2 = index and (Cd == Ad)
+    index2 = index & np.isclose(Cd, Ad)
     index3 = Cs > 0
     c = comp(Cd, As)
-    B = Cd[:]
-    B[index2] = (As * Ad + c)[index2]
+    AsAd = As * Ad
+    B = np.zeros_like(Cs)
+    B[index3] = (AsAd * (1 - np.minimum(1, safe_divide(As * (Ad - Cd), Ad * Cs))) + comp(Cs, Ad) + c)[index3]
     B[index] = c[index]
-    B[index3] = (As * Ad * (1 - np.minimum(1, (1 - safe_divide(Cd, Ad)) * safe_divide(As, Cs))) + comp(Cs, Ad) + c)[index3]
+    B[index2] = (AsAd + c)[index2]
     return B
 
-# SAI Color Dodge
+# Non-premultiplied. I thought SAI was using this, but seems not.
+def color_burn_nonpre(Cd, Cs, Ad, As):
+    Cdp = clip(safe_divide(Cd, Ad))
+    Csp = clip(safe_divide(Cs, As))
+    index = (Csp != 0) & (Csp != 0)
+    B = np.zeros_like(Csp)
+    B[Cd == 1] = 0
+    B[index] = (1 - np.minimum(1, clip(safe_divide(1 - Cdp, Csp))))[index]
+    return normal(Cd, clip(B), Ad, As)
+
+# PS/CSP Color Dodge, SAI's is unknown
 def color_dodge(Cd, Cs, Ad, As):
+    index = np.isclose(Cs, As)
+    index2 = index & (Cd == 0)
+    index3 = Cs < As
+    c1 = comp(Cs, Ad)
+    c2 = comp(Cd, As) + c1
+    B = np.zeros_like(Cs)
+    B[index3] = (As * Ad * np.minimum(1, safe_divide(Cd * As, Ad * (As - Cs))) + c2)[index3]
+    B[index] = (As * Ad + c2)[index]
+    B[index2] = c1[index2]
+    return B
+
+# Technically correct Vivid Light? Seems like everyone else's vivid light is messed up.
+def vivid_light(Cd, Cs, Ad, As):
     Cs2 = Cs + Cs
     index = Cs2 > As
-    c = Cs2 * Cd
-    B = Cs * (1 + Ad) + Cd * (1 + As) - As * Ad - c
-    B[index] = (c + comp2(Cd, Cs, Ad, As))[index]
+    B = color_burn(Cd, Cs2, Ad, As)
+    B[index] = color_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-# SAI Vivid Light
-def vivid_light(Cd, Cs, Ad, As):
-    pass
+def clip(color):
+    return np.clip(color, 0, 1)
 
 def safe_divide(a, b):
     with np.errstate(divide='ignore', invalid='ignore'):
-        a = a / b
-        np.clip(a, 0, 1, out=a)
-        return a
+        return a / b
 
 def divide(Cd, Cs, Ad, As):
     return safe_divide(Cs, Cd) + comp2(Cd, Cs, Ad, As)
@@ -118,9 +138,9 @@ blend_modes = {
     BlendMode.LINEAR_BURN: linear_burn,
     BlendMode.LINEAR_DODGE: linear_dodge,
     BlendMode.LINEAR_LIGHT: linear_light,
-    # BlendMode.COLOR_BURN: color_burn,
-    # BlendMode.COLOR_DODGE: color_dodge,
-    # BlendMode.VIVID_LIGHT: vivid_light,
+    BlendMode.COLOR_BURN: color_burn,
+    BlendMode.COLOR_DODGE: color_dodge,
+    BlendMode.VIVID_LIGHT: vivid_light,
     BlendMode.HARD_LIGHT: hard_light,
     # BlendMode.SOFT_LIGHT: soft_light,
     # BlendMode.PIN_LIGHT: pin_light,

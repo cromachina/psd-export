@@ -59,10 +59,6 @@ def padded_data(layer, channel, size, offset):
 def clip(color):
     np.clip(color, 0, 1, out=color)
 
-def divide(color, alpha):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        color /= alpha
-
 def composite_layer(layer, size, offset, backdrop=None):
     if not layer.is_visible():
         return None
