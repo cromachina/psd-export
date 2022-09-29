@@ -93,12 +93,10 @@ def composite_layer(layer, size, offset, backdrop=None):
             color_src *= alpha_src
 
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
-        #alpha_func = blendfuncs.get_alpha_func(sublayer.blend_mode)
         color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
         alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
         clip(color_dst)
-        clip(alpha_dst)
 
     return color_dst, alpha_dst
 
@@ -135,8 +133,9 @@ file_name = pathlib.Path('H:/Art/temp/test.psd')
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    #file_name = pathlib.Path('H:/Art/temp/test.psd')
-    file_name = 'H:/Art/temp/20220911.psd'
+    # file_name = pathlib.Path('H:/Art/temp/test.psd')
+    # file_name = 'H:/Art/temp/20220911.psd'
+    file_name = 'H:/Art/temp/linear-dodge-sai-test.psd'
     start = time.perf_counter()
     psd = PSDImage.open(file_name)
     image = composite(psd)
