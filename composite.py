@@ -1,15 +1,11 @@
 import logging
-import pathlib
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import psutil
 from PIL import Image
-from psd_tools import PSDImage
 from psd_tools.constants import BlendMode
-from psd_tools.composite import blend
 
 import blendfuncs
 
@@ -124,16 +120,3 @@ def composite(psd):
         pool.shutdown(wait=True)
         image = Image.fromarray(np.uint8(color * 255))
         return image
-
-file_name = pathlib.Path('H:/Art/temp/test.psd')
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    # file_name = pathlib.Path('H:/Art/temp/test.psd')
-    # file_name = 'H:/Art/temp/20220911.psd'
-    file_name = 'H:/Art/temp/linear-dodge-sai-test.psd'
-    start = time.perf_counter()
-    psd = PSDImage.open(file_name)
-    image = composite(psd)
-    image.save(pathlib.Path(file_name).with_suffix('.png'))
-    print(time.perf_counter() - start)
