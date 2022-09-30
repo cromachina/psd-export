@@ -13,11 +13,11 @@ import composite
 class CensorMode(Enum):
     NONE = auto()
     MOSAIC = auto()
-    TWITTER = auto()
+    SOLID = auto()
 
 tag_regex = re.compile('\[(.+)\]')
 censor_regex = re.compile('censor')
-censor_tw_regex = re.compile('censor-tw')
+censor_solid_regex = re.compile('censor solid')
 
 def find_layers(layer, regex):
     return list(filter(lambda sublayer: regex.search(sublayer.name), layer.descendants()))
@@ -51,7 +51,7 @@ def get_censor_composite_mask(layers, viewport):
 def export_variant(psd, file_name, show_tag, censor_mode):
     show_tag_regex = re.compile(f'\[({show_tag})\]')
 
-    for regex in [tag_regex, censor_regex, censor_tw_regex]:
+    for regex in [tag_regex, censor_regex, censor_solid_regex]:
         for layer in find_layers(psd, regex):
             layer.visible = False
 
@@ -68,12 +68,12 @@ def export_variant(psd, file_name, show_tag, censor_mode):
         if mask:
             image = apply_mosaic(image, mask)
         png_path = png_path.parent / 'censor' / png_path.name
-    elif censor_mode == CensorMode.TWITTER:
+    elif censor_mode == CensorMode.SOLID:
         for layer in show_layers:
-            for sublayer in find_layers(layer, censor_tw_regex):
+            for sublayer in find_layers(layer, censor_solid_regex):
                 sublayer.visible = True
         image = composite.composite(psd)
-        png_path = png_path.parent / 'censor-tw' / png_path.name
+        png_path = png_path.parent / 'censor-solid' / png_path.name
     else:
         image = composite.composite(psd)
 
@@ -97,14 +97,17 @@ def export_all_variants(file_name):
             tags.add(tag)
 
     has_censors = len(find_layers(psd, censor_regex)) > 0
-    has_tw_censors = len(find_layers(psd, censor_regex)) > 0
+    has_censor_solids = len(find_layers(psd, censor_solid_regex)) > 0
+
+    if len(tags) == 0:
+        tags.add('')
 
     for tag in tags:
         export_variant(psd, file_name, tag, CensorMode.NONE)
         if has_censors:
             export_variant(psd, file_name, tag, CensorMode.MOSAIC)
-        if has_tw_censors:
-            export_variant(psd, file_name, tag, CensorMode.TWITTER)
+        if has_censor_solids:
+            export_variant(psd, file_name, tag, CensorMode.SOLID)
 
     logging.info(f'export time: {time.perf_counter() - start}')
 

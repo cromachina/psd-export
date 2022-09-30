@@ -101,7 +101,7 @@ def composite_tile(psd, size, offset, color, alpha):
         logging.exception(e)
 
 def composite(psd):
-    with ThreadPoolExecutor(max_workers=psutil.cpu_count()) as pool:
+    with ThreadPoolExecutor(max_workers=psutil.cpu_count(False)) as pool:
         size = psd.height, psd.width
         color = np.ndarray(size + (3,), dtype=dtype)
         alpha = np.ndarray(size + (1,), dtype=dtype)
