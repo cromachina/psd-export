@@ -56,14 +56,15 @@ def get_pixel_layer_data(layer, size, offset):
     color_src = padded_data(layer, 'color', size, offset, layer.offset)
     alpha_src = padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
-        alpha_src = np.ones(color_src.shape[:2] + (1,), dtype=dtype)
+        alpha_src = np.ones(size + (1,), dtype=dtype)
     return color_src, alpha_src
 
 def get_mask_data(layer, size, offset):
     mask = layer.mask
     if mask and not mask.disabled:
         return padded_data(layer, 'mask', size, offset, (mask.left, mask.top), 1)
-    return None
+    else:
+        return np.ones(size + (1,), dtype=dtype)
 
 def clip(color):
     np.clip(color, 0, 1, out=color)
@@ -91,17 +92,24 @@ def get_layer_and_clip_groupings(layers):
     grouped_layers.reverse()
     return grouped_layers
 
-def composite_layers(layers, size, offset, backdrop=None):
-    color_dst = None
-    alpha_dst = None
+def safe_divide(a, b):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        np.divide(a, b, out=a)
+        clip(a)
 
+def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
     if backdrop:
         color_dst, alpha_dst = backdrop
     else:
         color_dst = np.zeros(size + (3,), dtype=dtype)
         alpha_dst = np.zeros(size + (1,), dtype=dtype)
 
-    for sublayer, clipping_layers in get_layer_and_clip_groupings(layers):
+    if clip_mode:
+        layers = map(lambda l: (l, []), layers)
+    else:
+        layers = get_layer_and_clip_groupings(layers)
+
+    for sublayer, clip_layers in layers:
         if not sublayer.visible:
             continue
 
@@ -115,16 +123,19 @@ def composite_layers(layers, size, offset, backdrop=None):
 
         mask_src = get_mask_data(sublayer, size, offset)
         alpha_src *= sublayer.opacity / 255.0
-        if mask_src is not None:
-            alpha_src *= mask_src
+        alpha_src *= mask_src
 
         if sublayer.is_group():
-            if mask_src is not None:
-                color_src *= mask_src
-        else:
+            color_src *= mask_src
+
+        if clip_layers:
+            color_src, alpha_clip = composite_layers(clip_layers, size, offset, (color_src, alpha_src), True)
+
+        if not sublayer.is_group():
             color_src *= alpha_src
 
-        color_src, _ = composite_layers(clipping_layers, size, offset, (color_src, alpha_src))
+        debug_layer(sublayer.name + '-color', offset, color_src)
+        debug_layer(sublayer.name + '-alpha', offset, alpha_src)
 
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
         color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
@@ -133,6 +144,14 @@ def composite_layers(layers, size, offset, backdrop=None):
         clip(color_dst)
 
     return color_dst, alpha_dst
+
+debug_path = ''
+
+def debug_layer(name, offset, data):
+    if data.shape[2] == 1:
+        data = data.reshape(data.shape[:2])
+    image = Image.fromarray((data * 255).astype(np.uint8))
+    image.save(debug_path / f'{name}-{offset}.png')
 
 def composite_tile(psd, size, offset, color, alpha):
     try:
