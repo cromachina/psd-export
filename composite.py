@@ -129,13 +129,16 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             color_src *= mask_src
 
         if clip_layers:
-            color_src, alpha_clip = composite_layers(clip_layers, size, offset, (color_src, alpha_src), True)
+            # Why does this work!? If I don't do this, then blend modes like multiply, darken, etc. will BRIGHTEN
+            # areas at the edge of large transparency gradients. I was only able to figure it out after
+            # randomly trying to multiply the alpha_src by itself, then sqrt, and obvserve it getting brighter
+            # and darker respectively. I then tried successively larger roots until it looked sufficently like
+            # SAI's output.
+            corrected_alpha = np.float_power(alpha_src, 1/10000)
+            color_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
 
         if not sublayer.is_group():
             color_src *= alpha_src
-
-        debug_layer(sublayer.name + '-color', offset, color_src)
-        debug_layer(sublayer.name + '-alpha', offset, alpha_src)
 
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
         color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
