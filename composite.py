@@ -44,20 +44,26 @@ def get_cached_layer_data(layer, channel):
             setattr(layer, attr_name, data)
             return data
 
-def padded_data(layer, channel, size, offset):
+def padded_data(layer, channel, size, offset, data_offset, fill=0):
     data = get_cached_layer_data(layer, channel)
     if data is None:
         return None
-    pad = np.zeros(size + data.shape[2:], dtype=dtype)
-    blit(pad, data, np.array(swap(layer.offset)) - np.array(offset))
+    pad = np.full(size + data.shape[2:], fill_value=fill, dtype=dtype)
+    blit(pad, data, np.array(swap(data_offset)) - np.array(offset))
     return pad
 
 def get_pixel_layer_data(layer, size, offset):
-    color_src = padded_data(layer, 'color', size, offset)
-    alpha_src = padded_data(layer, 'shape', size, offset)
+    color_src = padded_data(layer, 'color', size, offset, layer.offset)
+    alpha_src = padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
         alpha_src = np.ones(color_src.shape[:2] + (1,), dtype=dtype)
     return color_src, alpha_src
+
+def get_mask_data(layer, size, offset):
+    mask = layer.mask
+    if mask and not mask.disabled:
+        return padded_data(layer, 'mask', size, offset, (mask.left, mask.top), 1)
+    return None
 
 def clip(color):
     np.clip(color, 0, 1, out=color)
@@ -86,7 +92,10 @@ def composite_layer(layer, size, offset, backdrop=None):
             next_backdrop = (color_dst, alpha_dst)
 
         color_src, alpha_src = composite_layer(sublayer, size, offset, next_backdrop)
+        mask_src = get_mask_data(sublayer, size, offset)
         alpha_src *= sublayer.opacity / 255.0
+        if mask_src is not None:
+            alpha_src *= mask_src
 
         if sublayer._record.clipping == Clipping.NON_BASE:
             if previous_non_clip_alpha_src is not None:
@@ -94,7 +103,10 @@ def composite_layer(layer, size, offset, backdrop=None):
         else:
             previous_non_clip_alpha_src = alpha_src
 
-        if not sublayer.is_group():
+        if sublayer.is_group():
+            if mask_src is not None:
+                color_src *= mask_src
+        else:
             color_src *= alpha_src
 
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
