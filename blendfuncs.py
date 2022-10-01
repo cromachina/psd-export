@@ -35,7 +35,12 @@ def screen(Cd, Cs, Ad, As):
     return Cs + Cd - Cs * Cd
 
 def overlay(Cd, Cs, Ad, As):
-    return hard_light(Cs, Cd, As, Ad)
+    Cd2 = Cd + Cd
+    index = Cd2 > Cd
+    c = comp2(Cd, Cs, Ad, As)
+    B = Cd2 * Cs + c
+    B[index] = (As * Ad - 2 * (Ad - Cd) * (As - Cs) + c)[index]
+    return B
 
 # SAI Shade
 def linear_burn(Cd, Cs, Ad, As):
@@ -56,8 +61,8 @@ def linear_light(Cd, Cs, Ad, As):
 def hard_light(Cd, Cs, Ad, As):
     Cs2 = Cs + Cs
     index = Cs2 > As
-    B = multiply(Cs, Cs2, Ad, As)
-    B[index] = screen(Cs, Cs2 - As, Ad, As)[index]
+    B = multiply(Cd, Cs2, Ad, As)
+    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
     return B
 
 def darken(Cd, Cs, Ad, As):
