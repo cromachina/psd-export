@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import psutil
 from PIL import Image
-from psd_tools.constants import BlendMode
+from psd_tools.constants import BlendMode, Clipping
 
 import blendfuncs
 
@@ -48,38 +48,51 @@ def padded_data(layer, channel, size, offset):
     data = get_cached_layer_data(layer, channel)
     if data is None:
         return None
-    pad = np.zeros(size + data.shape[2:], dtype=data.dtype)
+    pad = np.zeros(size + data.shape[2:], dtype=dtype)
     blit(pad, data, np.array(swap(layer.offset)) - np.array(offset))
     return pad
+
+def get_pixel_layer_data(layer, size, offset):
+    color_src = padded_data(layer, 'color', size, offset)
+    alpha_src = padded_data(layer, 'shape', size, offset)
+    if alpha_src is None:
+        alpha_src = np.ones(color_src.shape[:2] + (1,), dtype=dtype)
+    return color_src, alpha_src
 
 def clip(color):
     np.clip(color, 0, 1, out=color)
 
 def composite_layer(layer, size, offset, backdrop=None):
-    if not layer.is_visible():
-        return None
     if not layer.is_group():
-        color_src = padded_data(layer, 'color', size, offset)
-        alpha_src = padded_data(layer, 'shape', size, offset)
-        if alpha_src is None:
-            alpha_src = np.ones(color_src.shape[:2] + (1,), dtype=color_src.dtype)
-        return color_src, alpha_src
+        return get_pixel_layer_data(layer, size, offset)
 
     color_dst = None
     alpha_dst = None
 
-    if layer.kind != 'psdimage' and layer.blend_mode == BlendMode.PASS_THROUGH and backdrop:
+    if backdrop:
         color_dst, alpha_dst = backdrop
     else:
         color_dst = np.zeros(size + (3,), dtype=dtype)
         alpha_dst = np.zeros(size + (1,), dtype=dtype)
 
+    previous_non_clip_alpha_src = None
+
     for sublayer in layer:
-        data = composite_layer(sublayer, size, offset, (color_dst, alpha_dst))
-        if data is None:
+        if not sublayer.visible:
             continue
-        color_src, alpha_src = data
+
+        next_backdrop = None
+        if sublayer.blend_mode == BlendMode.PASS_THROUGH:
+            next_backdrop = (color_dst, alpha_dst)
+
+        color_src, alpha_src = composite_layer(sublayer, size, offset, next_backdrop)
         alpha_src *= sublayer.opacity / 255.0
+
+        if sublayer._record.clipping == Clipping.NON_BASE:
+            if previous_non_clip_alpha_src is not None:
+                alpha_src *= previous_non_clip_alpha_src
+        else:
+            previous_non_clip_alpha_src = alpha_src
 
         if not sublayer.is_group():
             color_src *= alpha_src
