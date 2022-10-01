@@ -35,11 +35,12 @@ def screen(Cd, Cs, Ad, As):
     return Cs + Cd - Cs * Cd
 
 def overlay(Cd, Cs, Ad, As):
-    Cd2 = Cd + Cd
-    index = Cd2 > Cd
-    c = comp2(Cd, Cs, Ad, As)
-    B = Cd2 * Cs + c
-    B[index] = (As * Ad - 2 * (Ad - Cd) * (As - Cs) + c)[index]
+    # Really similar to hard light, 2 * Cd is the index.
+    Cd2 = 2 * Cd
+    Cs2 = 2 * Cs
+    index = Cd2 > Ad
+    B = multiply(Cd, Cs2, Ad, As)
+    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
     return B
 
 # SAI Shade
@@ -52,14 +53,14 @@ def linear_dodge(Cd, Cs, Ad, As):
 
 # SAI Shade/Shine
 def linear_light(Cd, Cs, Ad, As):
-    Cs2 = Cs + Cs
+    Cs2 = 2 * Cs
     index = Cs2 > As
     B = linear_burn(Cd, Cs2, Ad, As)
     B[index] = linear_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
 def hard_light(Cd, Cs, Ad, As):
-    Cs2 = Cs + Cs
+    Cs2 = 2 * Cs
     index = Cs2 > As
     B = multiply(Cd, Cs2, Ad, As)
     B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
@@ -109,7 +110,7 @@ def color_dodge(Cd, Cs, Ad, As):
 
 # Technically correct Vivid Light? Seems like everyone else's vivid light is messed up.
 def vivid_light(Cd, Cs, Ad, As):
-    Cs2 = Cs + Cs
+    Cs2 = 2 * Cs
     index = Cs2 > As
     B = color_burn(Cd, Cs2, Ad, As)
     B[index] = color_dodge(Cd, Cs2 - As, Ad, As)[index]
