@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import psutil
 from PIL import Image
-from psd_tools.constants import BlendMode, Clipping
+from psd_tools.constants import BlendMode, Clipping, Tag
 
 import blendfuncs
 
@@ -97,6 +97,18 @@ def safe_divide(a, b):
         np.divide(a, b, out=a)
         clip(a)
 
+# From Systemax support: The 8 special blend modes use the following layer tag blocks:
+# 'tsly' is set to 0
+# 'iOpa' is set to the layer opacity
+# Actual layer opacity is set to 255
+def get_sai_special_mode_opacity(layer):
+    blocks = layer._record.tagged_blocks
+    tsly = blocks.get(Tag.TRANSPARENCY_SHAPES_LAYER, None)
+    iOpa = blocks.get(Tag.BLEND_FILL_OPACITY, None)
+    if tsly and iOpa and tsly.data == 0:
+        return float(iOpa.data), True
+    return layer.opacity, False
+
 def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
     if backdrop:
         color_dst, alpha_dst = backdrop
@@ -122,7 +134,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
         mask_src = get_mask_data(sublayer, size, offset)
-        alpha_src *= sublayer.opacity / 255.0
+        opacity, special_mode = get_sai_special_mode_opacity(sublayer)
+        alpha_src *= opacity / 255.0
         alpha_src *= mask_src
 
         if sublayer.is_group():
