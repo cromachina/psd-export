@@ -1,5 +1,6 @@
 import numpy as np
 from psd_tools.constants import BlendMode
+from psd_tools.composite import blend
 
 # https://dev.w3.org/SVG/modules/compositing/master/
 # How to convert from non-premultiplied blend functions to premultiplied ones:
@@ -18,6 +19,24 @@ from psd_tools.constants import BlendMode
 # f(Cd, Cs) -> f(Cd * As, Cs * Ad) + comp(Cd, As) + comp(Cs, Ad)
 # - The result can be optimized by expanding and simplifying.
 # - Color burn is the odd one out. Its conversion is a bit confusing.
+
+def clip(color):
+    return np.clip(color, 0, 1)
+
+def safe_divide(a, b):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return a / (b + np.finfo(b.dtype).eps)
+
+# Turn a non-premultiplied blend func into a premultiplied one.
+# The result may sometimes look a little bit different from SAI.
+def to_premul(non_premul_func):
+    def fn(Cd, Cs, Ad, As):
+        Cdp = clip(safe_divide(Cd, Ad))
+        Csp = clip(safe_divide(Cs, As))
+        Csp = non_premul_func(Cdp, Csp)
+        Csp *= As
+        return normal(Cd, Csp, Ad, As)
+    return fn
 
 def comp(C, A):
     return C * (1 - A)
@@ -59,19 +78,6 @@ def linear_light(Cd, Cs, Ad, As):
     B[index] = linear_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-def hard_light(Cd, Cs, Ad, As):
-    Cs2 = 2 * Cs
-    index = Cs2 > As
-    B = multiply(Cd, Cs2, Ad, As)
-    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
-    return B
-
-def darken(Cd, Cs, Ad, As):
-    return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
-
-def lighten(Cd, Cs, Ad, As):
-    return np.maximum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
-
 # PS/CSP Color Burn, SAI's is unknown
 def color_burn(Cd, Cs, Ad, As):
     index = Cs == 0
@@ -84,16 +90,6 @@ def color_burn(Cd, Cs, Ad, As):
     B[index] = c[index]
     B[index2] = (AsAd + c)[index2]
     return B
-
-# Non-premultiplied. I thought SAI was using this, but seems not.
-def color_burn_nonpre(Cd, Cs, Ad, As):
-    Cdp = clip(safe_divide(Cd, Ad))
-    Csp = clip(safe_divide(Cs, As))
-    index = (Csp != 0) & (Csp != 0)
-    B = np.zeros_like(Csp)
-    B[Cd == 1] = 0
-    B[index] = (1 - np.minimum(1, clip(safe_divide(1 - Cdp, Csp))))[index]
-    return normal(Cd, clip(B), Ad, As)
 
 # PS/CSP Color Dodge, SAI's is unknown
 def color_dodge(Cd, Cs, Ad, As):
@@ -116,25 +112,78 @@ def vivid_light(Cd, Cs, Ad, As):
     B[index] = color_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-def clip(color):
-    return np.clip(color, 0, 1)
+soft_light = to_premul(blend.soft_light)
 
-def safe_divide(a, b):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return a / b
+# Broken. So confusing.
+def soft_light_broken(Cd, Cs, Ad, As):
+    Cs2 = 2 * Cs
+    index = Cs2 <= As
+    ia = ~index
+    ib = (4 * Cd) <= Ad
+    index2 = ia & ib
+    index3 = ia & (~ib)
+    m = safe_divide(Cd, Ad)
+    B = np.zeros_like(Cs)
+    x = Cs2 - As
+    Adx = Ad * x
+    y = Cs - (Cs * Ad) + Cd
+    B[index3] = (Adx * (np.sqrt(m) - m) + y)[index3]
+    B[index2] = (Adx * (16 * (m ** 3) - 12 * (m ** 2) - 3 * m) + y)[index2]
+    B[index] = (Cd * (As + x * (1 - m)) + comp2(Cd, Cs, Ad, As))[index]
+    return B
 
-def divide(Cd, Cs, Ad, As):
-    return safe_divide(Cs, Cd) + comp2(Cd, Cs, Ad, As)
+def hard_light(Cd, Cs, Ad, As):
+    Cs2 = 2 * Cs
+    index = Cs2 > As
+    B = multiply(Cd, Cs2, Ad, As)
+    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
+    return B
+
+def pin_light(Cd, Cs, Ad, As):
+    Cs2 = 2 * Cs
+    index = Cs2 > As
+    B = darken(Cd, Cs2, Ad, As)
+    B[index] = lighten(Cd, Cs2 - As, Ad, As)[index]
+    return B
+
+# TODO Broken
+def hard_mix(Cd, Cs, Ad, As):
+    index = (Cd * 2 + Cs * 2) >= As
+    B = np.zeros_like(Cs)
+    B[index] = 1
+    return B
+
+def darken(Cd, Cs, Ad, As):
+    return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
+
+def lighten(Cd, Cs, Ad, As):
+    return np.maximum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
+
+darker_color = to_premul(blend.darker_color)
+
+lighter_color = to_premul(blend.lighter_color)
 
 # SAI Difference
 def difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
 def exclusion(Cd, Cs, Ad, As):
-    return (Cs * Ad + Cd + As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
+    return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
 
 def subtract(Cd, Cs, Ad, As):
-    return Cs + Cs - (Cd * As) - (Cs * As)
+    return  Cd + Cs - 2 * Cs * Ad
+
+def divide(Cd, Cs, Ad, As):
+    return safe_divide(Cd * As, Cs * Ad) + comp2(Cd, Cs, Ad, As)
+
+hue = to_premul(blend.hue)
+
+saturation = to_premul(blend.saturation)
+
+# Broken
+color = to_premul(blend.color)
+
+luminosity = to_premul(blend.luminosity)
 
 blend_modes = {
     BlendMode.NORMAL: normal,
@@ -148,21 +197,21 @@ blend_modes = {
     BlendMode.COLOR_DODGE: color_dodge,
     BlendMode.VIVID_LIGHT: vivid_light,
     BlendMode.HARD_LIGHT: hard_light,
-    # BlendMode.SOFT_LIGHT: soft_light,
-    # BlendMode.PIN_LIGHT: pin_light,
-    # BlendMode.HARD_MIX: hard_mix,
+    BlendMode.SOFT_LIGHT: soft_light,
+    BlendMode.PIN_LIGHT: pin_light,
+    BlendMode.HARD_MIX: hard_mix,
     BlendMode.DARKEN: darken,
     BlendMode.LIGHTEN: lighten,
-    # BlendMode.DARKER_COLOR: darker_color,
-    # BlendMode.LIGHTER_COLOR: lighter_color,
-    BlendMode.DIVIDE: divide,
+    BlendMode.DARKER_COLOR: darker_color,
+    BlendMode.LIGHTER_COLOR: lighter_color,
     BlendMode.DIFFERENCE: difference,
     BlendMode.EXCLUSION: exclusion,
     BlendMode.SUBTRACT: subtract,
-    # BlendMode.HUE: hue,
-    # BlendMode.SATURATION: saturation,
-    # BlendMode.COLOR: color,
-    # BlendMode.LUMINOSITY: luminosity,
+    BlendMode.DIVIDE: divide,
+    BlendMode.HUE: hue,
+    BlendMode.SATURATION: saturation,
+    BlendMode.COLOR: color,
+    BlendMode.LUMINOSITY: luminosity,
     # BlendMode.DISSOLVE: dissolve,
 }
 
