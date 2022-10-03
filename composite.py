@@ -177,12 +177,19 @@ def composite_tile(psd, size, offset, color, alpha):
     except Exception as e:
         logging.exception(e)
 
-def composite(psd):
-    with ThreadPoolExecutor(max_workers=psutil.cpu_count(False)) as pool:
+def composite(psd, tile_size=(256,256), worker_count=None):
+    '''
+    Composite the given PSD and return an PIL image.
+    `tile_size` is arranged by (height, width)
+    `worker_count` is for multi-threading. Set to None to use the number of physical processors
+    '''
+    if worker_count is None:
+        worker_count = psutil.cpu_count(False)
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
         size = psd.height, psd.width
         color = np.ndarray(size + (3,), dtype=dtype)
         alpha = np.ndarray(size + (1,), dtype=dtype)
-        tile_height, tile_width = 512, 512
+        tile_height, tile_width = tile_size
 
         y = 0
         while y < psd.height:
