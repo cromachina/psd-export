@@ -87,14 +87,15 @@ def get_layer_and_clip_groupings(layers):
             else:
                 grouped_layers.append((layer, clip_stack))
             clip_stack = []
-    for sublayer in reversed(clip_stack):
+    # Left over clip layers, caused by clipping onto no layer.
+    for sublayer in clip_stack:
         grouped_layers.append((sublayer, []))
     grouped_layers.reverse()
     return grouped_layers
 
 def safe_divide(a, b):
     with np.errstate(divide='ignore', invalid='ignore'):
-        np.divide(a, b, out=a)
+        np.divide(a, b + np.finfo(a.dtype).eps, out=a)
         clip(a)
 
 # From Systemax support: The 8 special blend modes use the following layer tag blocks:
@@ -106,8 +107,8 @@ def get_sai_special_mode_opacity(layer):
     tsly = blocks.get(Tag.TRANSPARENCY_SHAPES_LAYER, None)
     iOpa = blocks.get(Tag.BLEND_FILL_OPACITY, None)
     if tsly and iOpa and tsly.data == 0:
-        return float(iOpa.data), True
-    return layer.opacity, False
+        return float(iOpa.data) / 255.0, True
+    return layer.opacity / 255.0, False
 
 def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
     if backdrop:
@@ -130,34 +131,43 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             if sublayer.blend_mode == BlendMode.PASS_THROUGH:
                 next_backdrop = (color_dst, alpha_dst)
             color_src, alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
+            # Un-multiply group composites so that clipping layers blend on to them correctly.
+            safe_divide(color_src, alpha_src)
         else:
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
         mask_src = get_mask_data(sublayer, size, offset)
+
+        # Opacity is actually FILL when special mode is true!
         opacity, special_mode = get_sai_special_mode_opacity(sublayer)
-        alpha_src *= opacity / 255.0
-        alpha_src *= mask_src
 
-        if sublayer.is_group():
-            color_src *= mask_src
+        # Composite the clip layers now. This basically overwrites just the color by blending onto it without
+        # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
+        # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
+        corrected_alpha = alpha_src ** (0.0001)
+        color_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
 
-        if clip_layers:
-            # Why does this work!? If I don't do this, then blend modes like multiply, darken, etc. will BRIGHTEN
-            # areas at the edge of large transparency gradients. I was only able to figure it out after
-            # randomly trying to multiply the alpha_src by itself, then sqrt, and obvserve it getting brighter
-            # and darker respectively. I then tried successively larger roots until it looked sufficently like
-            # SAI's output.
-            corrected_alpha = np.float_power(alpha_src, 1/10000)
-            color_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
+        # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
+        alpha_src *= opacity
 
-        if not sublayer.is_group():
-            color_src *= alpha_src
+        # Now we can 'premultiply' the color_src for the main blend operation.
+        color_src *= alpha_src
 
+        # TODO Handle special_mode flag to pick the TS versions of blend functions
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
-        color_dst = blend_func(color_dst, color_src, alpha_dst, alpha_src)
-        alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
+        color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
 
-        clip(color_dst)
+        # Premultiplied blending may cause out-of-range values, so it must be clipped.
+        clip(color_src)
+
+        # We apply the mask last and LERP the blended result onto the destination.
+        # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
+        # will yield a slightly different result from those programs.
+        color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
+
+        # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
+        alpha_src *= mask_src
+        alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
     return color_dst, alpha_dst
 
