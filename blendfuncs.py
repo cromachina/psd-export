@@ -25,7 +25,7 @@ def clip(color):
 
 def safe_divide(a, b):
     with np.errstate(divide='ignore', invalid='ignore'):
-        return a / (b + np.finfo(b.dtype).eps)
+        return a / (b + np.finfo(a.dtype).eps)
 
 # Turn a non-premultiplied blend func into a premultiplied one.
 # The result may sometimes look a little bit different from SAI.
@@ -104,7 +104,11 @@ def color_dodge(Cd, Cs, Ad, As):
     B[index2] = c1[index2]
     return B
 
-# Technically correct Vivid Light? Seems like everyone else's vivid light is messed up.
+# PS/CSP Vivid Light, SAI's is unknown
+# Technically correct Vivid Light? Seems like everyone else's
+# vivid light is messed up at 100% opacity/fill with clipped/buggy pixels.
+# Maybe this is related to hard light?
+# SAI: Nonlinear
 def vivid_light(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 > As
@@ -114,7 +118,8 @@ def vivid_light(Cd, Cs, Ad, As):
 
 soft_light = to_premul(blend.soft_light)
 
-# Broken. So confusing.
+# FIXME broken soft light. This function is so confusing.
+# SAI: Seemingly linear.
 def soft_light_broken(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 <= As
@@ -146,12 +151,34 @@ def pin_light(Cd, Cs, Ad, As):
     B[index] = lighten(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-# TODO Broken
-def hard_mix(Cd, Cs, Ad, As):
-    index = (Cd * 2 + Cs * 2) >= As
-    B = np.zeros_like(Cs)
-    B[index] = 1
-    return B
+def lerp(a, b, t):
+    return a + t * (b - a)
+
+hard_mix = to_premul(blend.hard_mix)
+
+# FIXME broken hard mix
+# SAI: Very nonlinear.. some sort of inverse logarithmic blend function for the alpha
+# that I have yet reverse engineer. It seems to have a similar out nonlinear
+# output as vivid light, but squashed into a range that causes clipping. That
+# may be the trick to fixing this.
+def hard_mix_broken(Cd, Cs, Ad, As):
+    F = 4
+    V = vivid_light(Cd, Cs * F, Ad, As * F)
+    return normal(Cd, V * As, Ad, As)
+
+    Cdd = clip(safe_divide(Cd, Ad))
+    Csd = clip(safe_divide(Cs, As))
+    As2 = np.maximum(As - 0.5, 0) * 2
+    C = Cdd + Csd
+    index = C > 1
+    H = np.zeros_like(Cs)
+    H[index] = 1
+    H = lerp(Csd, H, clip(1 / (np.log2(1-As) * 2)))
+    # H = As2 * H + (1 - As2) * Csd
+    #H *= As
+    # H = normal(Csd, H, 1, As2)
+    #H = normal(Cd, H, 1, As)
+    return H
 
 def darken(Cd, Cs, Ad, As):
     return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
@@ -164,6 +191,7 @@ darker_color = to_premul(blend.darker_color)
 lighter_color = to_premul(blend.lighter_color)
 
 # SAI Difference
+# SAI: Seemingly linear
 def difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
@@ -180,7 +208,7 @@ hue = to_premul(blend.hue)
 
 saturation = to_premul(blend.saturation)
 
-# Broken
+# FIXME Broken color
 color = to_premul(blend.color)
 
 luminosity = to_premul(blend.luminosity)
