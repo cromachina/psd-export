@@ -209,11 +209,12 @@ def subtract(Cd, Cs, Ad, As):
 # Seems like divide doesn't work properly unless converted to non-premul first.
 divide = to_premul(blend.divide)
 
+# FIXME Broken
 hue = to_premul(blend.hue)
 
+# FIXME Broken
 saturation = to_premul(blend.saturation)
 
-# FIXME Broken color
 color = to_premul(blend.color)
 
 luminosity = to_premul(blend.luminosity)
