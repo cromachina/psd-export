@@ -154,7 +154,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         color_src *= alpha_src
 
         # TODO Handle special_mode flag to pick the TS versions of blend functions
-        blend_func = blendfuncs.get_blend_func(sublayer.blend_mode)
+        blend_func = blendfuncs.get_blend_func(sublayer.blend_mode, special_mode)
         color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
 
         # Premultiplied blending may cause out-of-range values, so it must be clipped.

@@ -10,14 +10,13 @@
   - Vivid Light (Burn/Dodge)
   - Hard Mix
   - Difference
-  - Subtract (No matching TS mode)
-  - Hue (No matching TS mode)
 
 - Blend modes that have a slightly different result even at full opacity:
   - Soft Light
 
 - Blend modes that seem to be completely broken:
-  - Color
+  - Hue
+  - Saturation
 
 ### TODO:
 - Fix blend modes that don't quite work properly. This is low priority because I hardly use these modes myself or merge the results when painting.

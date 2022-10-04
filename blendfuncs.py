@@ -29,6 +29,7 @@ def safe_divide(a, b):
 
 # Turn a non-premultiplied blend func into a premultiplied one.
 # The result may sometimes look a little bit different from SAI.
+# This is a hit to performance too because of the two divides.
 def to_premul(non_premul_func):
     def fn(Cd, Cs, Ad, As):
         Cdp = clip(safe_divide(Cd, Ad))
@@ -78,8 +79,8 @@ def linear_light(Cd, Cs, Ad, As):
     B[index] = linear_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-# PS/CSP Color Burn, SAI's is unknown
-def color_burn(Cd, Cs, Ad, As):
+# TS Color Burn, SAI's is unknown, nonlinear
+def ts_color_burn(Cd, Cs, Ad, As):
     index = Cs == 0
     index2 = index & np.isclose(Cd, Ad)
     index3 = Cs > 0
@@ -91,8 +92,8 @@ def color_burn(Cd, Cs, Ad, As):
     B[index2] = (AsAd + c)[index2]
     return B
 
-# PS/CSP Color Dodge, SAI's is unknown
-def color_dodge(Cd, Cs, Ad, As):
+# TS Color Dodge, SAI's is unknown, nonlinear
+def ts_color_dodge(Cd, Cs, Ad, As):
     index = np.isclose(Cs, As)
     index2 = index & (Cd == 0)
     index3 = Cs < As
@@ -104,18 +105,18 @@ def color_dodge(Cd, Cs, Ad, As):
     B[index2] = c1[index2]
     return B
 
-# PS/CSP Vivid Light, SAI's is unknown
+# TS Vivid Light, SAI's is unknown, nonlinear
 # Technically correct Vivid Light? Seems like everyone else's
 # vivid light is messed up at 100% opacity/fill with clipped/buggy pixels.
 # Maybe this is related to hard light?
-# SAI: Nonlinear
-def vivid_light(Cd, Cs, Ad, As):
+def ts_vivid_light(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 > As
-    B = color_burn(Cd, Cs2, Ad, As)
-    B[index] = color_dodge(Cd, Cs2 - As, Ad, As)[index]
+    B = ts_color_burn(Cd, Cs2, Ad, As)
+    B[index] = ts_color_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
+# Slightly different from SAI
 soft_light = to_premul(blend.soft_light)
 
 # FIXME broken soft light. This function is so confusing.
@@ -154,14 +155,19 @@ def pin_light(Cd, Cs, Ad, As):
 def lerp(a, b, t):
     return a + t * (b - a)
 
-hard_mix = to_premul(blend.hard_mix)
-
-# FIXME broken hard mix
+# TS Hard Mix
 # SAI: Very nonlinear.. some sort of inverse logarithmic blend function for the alpha
 # that I have yet reverse engineer. It seems to have a similar out nonlinear
 # output as vivid light, but squashed into a range that causes clipping. That
 # may be the trick to fixing this.
-def hard_mix_broken(Cd, Cs, Ad, As):
+def ts_hard_mix(Cd, Cs, Ad, As):
+    index = Cd * As + Cs * Ad >= As
+    H = np.zeros_like(Cs)
+    H[index] = 1
+    H *= As
+    return H + comp2(Cd, Cs, Ad, As)
+
+    # Failed attempts at SAI hard mix
     F = 4
     V = vivid_light(Cd, Cs * F, Ad, As * F)
     return normal(Cd, V * As, Ad, As)
@@ -190,19 +196,18 @@ darker_color = to_premul(blend.darker_color)
 
 lighter_color = to_premul(blend.lighter_color)
 
-# SAI Difference
-# SAI: Seemingly linear
-def difference(Cd, Cs, Ad, As):
+# TS Difference; SAI: seemingly linear
+def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
 def exclusion(Cd, Cs, Ad, As):
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
 
 def subtract(Cd, Cs, Ad, As):
-    return  Cd + Cs - 2 * Cs * Ad
+    return  np.maximum(0, Cd * As - Cs * Ad) + comp2(Cd, Cs, Ad, As)
 
-def divide(Cd, Cs, Ad, As):
-    return safe_divide(Cd * As, Cs * Ad) + comp2(Cd, Cs, Ad, As)
+# Seems like divide doesn't work properly unless converted to non-premul first.
+divide = to_premul(blend.divide)
 
 hue = to_premul(blend.hue)
 
@@ -218,21 +223,21 @@ blend_modes = {
     BlendMode.MULTIPLY: multiply,
     BlendMode.SCREEN: screen,
     BlendMode.OVERLAY: overlay,
-    BlendMode.LINEAR_BURN: linear_burn,
-    BlendMode.LINEAR_DODGE: linear_dodge,
-    BlendMode.LINEAR_LIGHT: linear_light,
-    BlendMode.COLOR_BURN: color_burn,
-    BlendMode.COLOR_DODGE: color_dodge,
-    BlendMode.VIVID_LIGHT: vivid_light,
+    BlendMode.LINEAR_BURN: to_premul(blend.linear_burn),
+    BlendMode.LINEAR_DODGE: to_premul(blend.linear_dodge),
+    BlendMode.LINEAR_LIGHT: to_premul(blend.linear_light),
+    BlendMode.COLOR_BURN: ts_color_burn,
+    BlendMode.COLOR_DODGE: ts_color_dodge,
+    BlendMode.VIVID_LIGHT: ts_vivid_light,
     BlendMode.HARD_LIGHT: hard_light,
     BlendMode.SOFT_LIGHT: soft_light,
     BlendMode.PIN_LIGHT: pin_light,
-    BlendMode.HARD_MIX: hard_mix,
+    BlendMode.HARD_MIX: ts_hard_mix,
     BlendMode.DARKEN: darken,
     BlendMode.LIGHTEN: lighten,
     BlendMode.DARKER_COLOR: darker_color,
     BlendMode.LIGHTER_COLOR: lighter_color,
-    BlendMode.DIFFERENCE: difference,
+    BlendMode.DIFFERENCE: ts_difference,
     BlendMode.EXCLUSION: exclusion,
     BlendMode.SUBTRACT: subtract,
     BlendMode.DIVIDE: divide,
@@ -240,11 +245,24 @@ blend_modes = {
     BlendMode.SATURATION: saturation,
     BlendMode.COLOR: color,
     BlendMode.LUMINOSITY: luminosity,
-    # BlendMode.DISSOLVE: dissolve,
+}
+
+special_blend_modes = {
+    BlendMode.LINEAR_BURN: linear_burn,
+    BlendMode.LINEAR_DODGE: linear_dodge,
+    BlendMode.LINEAR_LIGHT: linear_light,
+    BlendMode.COLOR_BURN: ts_color_burn,
+    BlendMode.COLOR_DODGE: ts_color_dodge,
+    BlendMode.VIVID_LIGHT: ts_vivid_light,
+    BlendMode.HARD_MIX: ts_hard_mix,
+    BlendMode.DIFFERENCE: ts_difference,
 }
 
 def normal_alpha(Ad, As):
     return Ad + As - Ad * As
 
-def get_blend_func(blend_mode):
-    return blend_modes.get(blend_mode, normal)
+def get_blend_func(blend_mode, special_mode):
+    if special_mode:
+        return special_blend_modes.get(blend_mode, normal)
+    else:
+        return blend_modes.get(blend_mode, normal)
