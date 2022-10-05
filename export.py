@@ -49,7 +49,7 @@ def get_censor_composite_mask(layers, viewport):
     return None
 
 def export_variant(psd, file_name, show_tag, censor_mode):
-    show_tag_regex = re.compile(f'\[({show_tag})\]')
+    show_tag_regex = re.compile(f'\[({re.escape(show_tag)})\]')
 
     for regex in [tag_regex, censor_regex, censor_solid_regex]:
         for layer in find_layers(psd, regex):
