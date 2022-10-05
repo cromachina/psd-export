@@ -25,7 +25,7 @@ def clip(color):
 
 def safe_divide(a, b):
     with np.errstate(divide='ignore', invalid='ignore'):
-        return a / (b + np.finfo(a.dtype).eps)
+        return a / (b + np.finfo(np.float32).eps)
 
 # Turn a non-premultiplied blend func into a premultiplied one.
 # The result may sometimes look a little bit different from SAI.
@@ -155,36 +155,28 @@ def pin_light(Cd, Cs, Ad, As):
 def lerp(a, b, t):
     return a + t * (b - a)
 
-# TS Hard Mix
-# SAI: Very nonlinear.. some sort of inverse logarithmic blend function for the alpha
-# that I have yet reverse engineer. It seems to have a similar out nonlinear
-# output as vivid light, but squashed into a range that causes clipping. That
-# may be the trick to fixing this.
+def mult_inverse_blend(Cd, Cs, Ad, As):
+    Asd = safe_divide(1, 1 - As)
+    #Add = safe_divide(1, 1 - Ad)
+    #return 1 - ((1 - Cd) * Asd + Cs * (1 - Asd))
+    return safe_divide(Cd - As + As * Cs, 1 - As)
+
+# Hard Mix
+def hard_mix(Cd, Cs, Ad, As):
+    Cdd = clip(safe_divide(Cd, Ad))
+    Csd = clip(safe_divide(Cs, As))
+    H = clip(mult_inverse_blend(Cdd, Csd, Ad, As))
+
+    # Almost works
+    R = lerp(Csd, H, Ad) * As
+    return normal(Cd, R, Ad, As)
+
 def ts_hard_mix(Cd, Cs, Ad, As):
     index = Cd * As + Cs * Ad >= As
     H = np.zeros_like(Cs)
     H[index] = 1
     H *= As
     return H + comp2(Cd, Cs, Ad, As)
-
-    # Failed attempts at SAI hard mix
-    F = 4
-    V = vivid_light(Cd, Cs * F, Ad, As * F)
-    return normal(Cd, V * As, Ad, As)
-
-    Cdd = clip(safe_divide(Cd, Ad))
-    Csd = clip(safe_divide(Cs, As))
-    As2 = np.maximum(As - 0.5, 0) * 2
-    C = Cdd + Csd
-    index = C > 1
-    H = np.zeros_like(Cs)
-    H[index] = 1
-    H = lerp(Csd, H, clip(1 / (np.log2(1-As) * 2)))
-    # H = As2 * H + (1 - As2) * Csd
-    #H *= As
-    # H = normal(Csd, H, 1, As2)
-    #H = normal(Cd, H, 1, As)
-    return H
 
 def darken(Cd, Cs, Ad, As):
     return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
@@ -255,7 +247,7 @@ special_blend_modes = {
     BlendMode.COLOR_BURN: ts_color_burn,
     BlendMode.COLOR_DODGE: ts_color_dodge,
     BlendMode.VIVID_LIGHT: ts_vivid_light,
-    BlendMode.HARD_MIX: ts_hard_mix,
+    BlendMode.HARD_MIX: hard_mix,
     BlendMode.DIFFERENCE: ts_difference,
 }
 
