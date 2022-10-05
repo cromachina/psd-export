@@ -156,18 +156,19 @@ def lerp(a, b, t):
     return a + t * (b - a)
 
 def mult_inverse_blend(Cd, Cs, Ad, As):
-    Asd = safe_divide(1, 1 - As)
-    #Add = safe_divide(1, 1 - Ad)
-    #return 1 - ((1 - Cd) * Asd + Cs * (1 - Asd))
+    # Asd = safe_divide(1, 1 - As)
+    # Add = safe_divide(1, 1 - Ad)
+    # return 1 - ((1 - Cd) * Asd + Cs * (1 - Asd))
     return safe_divide(Cd - As + As * Cs, 1 - As)
 
 # Hard Mix
+# This almost works except the blend between multiplicative inverse and
+# the destination with transparent alpha is a bit off. It seems like this
+# part of the blending is also non-linear, but it's hard to figure out.
 def hard_mix(Cd, Cs, Ad, As):
     Cdd = clip(safe_divide(Cd, Ad))
     Csd = clip(safe_divide(Cs, As))
     H = clip(mult_inverse_blend(Cdd, Csd, Ad, As))
-
-    # Almost works
     R = lerp(Csd, H, Ad) * As
     return normal(Cd, R, Ad, As)
 
