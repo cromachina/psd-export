@@ -10,8 +10,8 @@ from pyrsistent import pmap, pset, pvector
 
 import composite
 
-tag_regex = re.compile('\[(.+)\]')
-censor_regex = re.compile('\[censor\]|\[censor@.*\]')
+tag_regex = re.compile('\[(.+?)\]')
+censor_regex = re.compile('\[censor\]|\[censor@.*?\]')
 
 def find_layers(layer, regex):
     return list(filter(lambda sublayer: regex.search(sublayer.name), layer.descendants()))
@@ -30,14 +30,17 @@ def apply_mosaic(image, mask):
     return Image.composite(mosaic_image, image, mask)
 
 def get_censor_composite_mask(layers, viewport):
-    censor_composites = []
+    censor_layers = set()
     for layer in layers:
-        for censor_layer in find_layers(layer, censor_regex):
-            censor_composites.append(censor_layer.composite(viewport=viewport))
-    if len(censor_composites) > 0:
-        composite = censor_composites[0]
-        for other_composite in censor_composites[1:]:
-            composite = Image.alpha_composite(composite, other_composite)
+        if layer.is_group():
+            for censor_layer in find_layers(layer, censor_regex):
+                censor_layers.add(censor_layer)
+        elif censor_regex.search(layer.name):
+            censor_layers.add(layer)
+    if len(censor_layers) > 0:
+        composite = Image.new('RGBA', viewport[2:], (0,0,0,0))
+        for layer in censor_layers:
+            composite = Image.alpha_composite(composite, layer.composite(viewport=viewport))
         return composite
     return None
 
@@ -122,6 +125,8 @@ def export_all_variants(file_name, config):
             secondary_tags = secondary_tags.set(xor_group, group)
         else:
             primary_tags = primary_tags.add(tag)
+
+    print(primary_tags, secondary_tags)
 
     if len(primary_tags) == 0:
         primary_tags = primary_tags.add('')
