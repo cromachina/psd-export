@@ -30,6 +30,7 @@ def find_layer(layer, exact_name):
 def apply_mosaic(image, mask):
     original_size = image.size
     min_dim = min(original_size) // 100
+    min_dim = max(4, min_dim)
     scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
     mosaic_image = image.resize(scale_dimension).resize(original_size, Image.Resampling.NEAREST)
     return Image.composite(mosaic_image, image, mask)
