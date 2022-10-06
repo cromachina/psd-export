@@ -52,7 +52,19 @@ def padded_data(layer, channel, size, offset, data_offset, fill=0):
     blit(pad, data, np.array(swap(data_offset)) - np.array(offset))
     return pad
 
+def intersects(a, b):
+    inter = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+    return not (inter[0] >= inter[2] or inter[1] >= inter[3])
+
+def tile_has_data(layer, size, offset):
+    offset = swap(offset)
+    size = swap(size)
+    bbox = offset + (size[0] + offset[0], size[1] + offset[1])
+    return intersects(layer.bbox, bbox)
+
 def get_pixel_layer_data(layer, size, offset):
+    if not tile_has_data(layer, size, offset):
+        return None, None
     color_src = padded_data(layer, 'color', size, offset, layer.offset)
     alpha_src = padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
@@ -122,6 +134,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
     else:
         layers = get_layer_and_clip_groupings(layers)
 
+    tile_found = False
+
     for sublayer, clip_layers in layers:
         if not sublayer.visible:
             continue
@@ -131,13 +145,18 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             if sublayer.blend_mode == BlendMode.PASS_THROUGH:
                 next_backdrop = (color_dst, alpha_dst)
             color_src, alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
-            # Un-multiply group composites so that clipping layers blend on to them correctly.
-            safe_divide(color_src, alpha_src)
         else:
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
-            # Empty pixel layer, can just ignore.
-            if color_src is None:
-                continue
+
+        # Empty tile, can just ignore.
+        if color_src is None:
+            continue
+
+        tile_found = True
+
+        if sublayer.is_group():
+            # Un-multiply group composites so that clipping layers blend on to them correctly.
+            safe_divide(color_src, alpha_src)
 
         mask_src = get_mask_data(sublayer, size, offset)
 
@@ -148,7 +167,9 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
         # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
         corrected_alpha = alpha_src ** (0.0001)
-        color_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
+        clip_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
+        if clip_src is not None:
+            color_src = clip_src
 
         # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
         alpha_src *= opacity
@@ -172,6 +193,9 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         alpha_src *= mask_src
         alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
+    if not tile_found:
+        return None, None
+
     return color_dst, alpha_dst
 
 debug_path = ''
@@ -184,8 +208,9 @@ def debug_layer(name, offset, data):
 
 def composite_tile(psd, size, offset, color, alpha):
     tile_color, tile_alpha = composite_layers(psd, size, offset)
-    blit(color, tile_color, offset)
-    blit(alpha, tile_alpha, offset)
+    if tile_color is not None:
+        blit(color, tile_color, offset)
+        blit(alpha, tile_alpha, offset)
 
 def composite(psd, tile_size=(256,256), worker_count=None):
     '''
