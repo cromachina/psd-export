@@ -116,6 +116,8 @@ def export_all_variants(file_name, config):
     for tag in tags:
         if '@' in tag:
             sub_tag, xor_group = tag.split('@')
+            if sub_tag == '':
+                continue
             group = secondary_tags.get(xor_group, pset()).add(sub_tag)
             secondary_tags = secondary_tags.set(xor_group, group)
         else:
