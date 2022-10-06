@@ -126,8 +126,6 @@ def export_all_variants(file_name, config):
         else:
             primary_tags = primary_tags.add(tag)
 
-    print(primary_tags, secondary_tags)
-
     if len(primary_tags) == 0:
         primary_tags = primary_tags.add('')
 
