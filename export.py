@@ -51,7 +51,7 @@ def export_variant(psd, file_name, show_tags):
 
     has_mosaic_censor = False
 
-    # Enable only active tags except censor
+    # Enable only active tags
     show_layers = []
     for tag in show_tags:
         if censor_regex.search(f'[{re.escape(tag)}]'):
@@ -60,6 +60,12 @@ def export_variant(psd, file_name, show_tags):
             for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
                 layer.visible = True
                 show_layers.append(layer)
+
+    # Censor tags may also share a primary tag; disable them again.
+    if has_mosaic_censor:
+        for layer in find_layers(psd, censor_regex):
+            has_mosaic_censor = True
+            layer.visible = False
 
     image = composite.composite(psd)
 
