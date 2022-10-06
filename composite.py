@@ -135,6 +135,9 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             safe_divide(color_src, alpha_src)
         else:
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
+            # Empty pixel layer, can just ignore.
+            if color_src is None:
+                continue
 
         mask_src = get_mask_data(sublayer, size, offset)
 
@@ -180,12 +183,9 @@ def debug_layer(name, offset, data):
     image.save(debug_path / f'{name}-{offset}.png')
 
 def composite_tile(psd, size, offset, color, alpha):
-    try:
-        tile_color, tile_alpha = composite_layers(psd, size, offset)
-        blit(color, tile_color, offset)
-        blit(alpha, tile_alpha, offset)
-    except Exception as e:
-        logging.exception(e)
+    tile_color, tile_alpha = composite_layers(psd, size, offset)
+    blit(color, tile_color, offset)
+    blit(alpha, tile_alpha, offset)
 
 def composite(psd, tile_size=(256,256), worker_count=None):
     '''
@@ -201,15 +201,21 @@ def composite(psd, tile_size=(256,256), worker_count=None):
         alpha = np.ndarray(size + (1,), dtype=dtype)
         tile_height, tile_width = tile_size
 
+        tasks = []
+
         y = 0
         while y < psd.height:
             x = 0
             while x < psd.width:
                 size_y = min(tile_height, psd.height - y)
                 size_x = min(tile_width, psd.width - x)
-                pool.submit(composite_tile, psd, (size_y, size_x), (y, x), color, alpha)
+                tasks.append(pool.submit(composite_tile, psd, (size_y, size_x), (y, x), color, alpha))
                 x += tile_width
             y += tile_height
+
+        # Invoke the result to bubble exceptions. Allows for debugging exceptions in worker threads.
+        for task in tasks:
+            task.result()
 
         pool.shutdown(wait=True)
         image = Image.fromarray(np.uint8(color * 255))
