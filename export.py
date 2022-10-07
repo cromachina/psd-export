@@ -1,4 +1,6 @@
 import argparse
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing.shared_memory import SharedMemory
 import pathlib
 import re
 import time
@@ -7,6 +9,7 @@ import logging
 from PIL import Image
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
+import numpy as np
 
 import composite
 
@@ -85,8 +88,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
 
     export_name = compute_file_name(file_name, config.subfolders, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
-    image.save(export_name)
-    logging.info(f'exported: {export_name}')
+    save_file(config._save_pool, export_name, image)
     config._file_cache[export_name] = image
 
 def fixed_primary_tag(tag):
@@ -122,8 +124,30 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
 
         secondary_tags = secondary_tags.remove(xor_group)
 
+def save_worker(file_name, shape, sm):
+    logging.basicConfig(level=logging.INFO)
+    try:
+        array = np.ndarray(shape, dtype=np.uint8, buffer=sm.buf)
+        image = Image.fromarray(array)
+        image.save(file_name)
+        logging.info(f'exported: {file_name}')
+    except Exception as e:
+        logging.exception(e)
+    finally:
+        sm.close()
+        sm.unlink()
+
+def save_file(pool, file_name, image):
+    array = np.asarray(image)
+    sm = SharedMemory(create=True, size=array.nbytes)
+    a = np.ndarray(array.shape, dtype=array.dtype, buffer=sm.buf)
+    np.copyto(a, array)
+    pool.submit(save_worker, file_name, array.shape, sm)
+
 def export_all_variants(file_name, config):
     start = time.perf_counter()
+    config._save_pool = ProcessPoolExecutor(1)
+
     psd = PSDImage.open(file_name)
     file_name = pathlib.Path(file_name).with_suffix('.png')
     tags = pset()
@@ -155,6 +179,7 @@ def export_all_variants(file_name, config):
             export_variant(psd, file_name, config, enabled, enabled)
         export_combinations(psd, file_name, config, secondary_tags, enabled, enabled)
 
+    config._save_pool.shutdown(wait=True)
     logging.info(f'export time: {time.perf_counter() - start}')
 
 if __name__ == '__main__':
