@@ -74,7 +74,7 @@ def get_pixel_layer_data(layer, size, offset):
 def get_mask_data(layer, size, offset):
     mask = layer.mask
     if mask and not mask.disabled:
-        return padded_data(layer, 'mask', size, offset, (mask.left, mask.top), 1)
+        return padded_data(layer, 'mask', size, offset, (mask.left, mask.top), 0)
     else:
         return np.ones(size + (1,), dtype=dtype)
 
