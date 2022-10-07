@@ -76,7 +76,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     # and if so, we can use that and skip expensive compositing.
     if has_mosaic_censor:
         predecessor_file = compute_file_name(file_name, config.subfolders, enabled_tags.remove('censor'))
-        image = config._file_cache[predecessor_file]
+        image = config._file_cache.get(predecessor_file)
 
     if image is None:
         image = composite.composite(psd)
