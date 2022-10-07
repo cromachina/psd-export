@@ -29,7 +29,7 @@ def apply_mosaic(image, mask):
     mosaic_image = image.resize(scale_dimension).resize(original_size, Image.Resampling.NEAREST)
     return Image.composite(mosaic_image, image, mask)
 
-def get_censor_composite_mask(layers, viewport):
+def get_censor_composite_mask(psd, layers):
     censor_layers = set()
     for layer in layers:
         if layer.is_group():
@@ -38,13 +38,15 @@ def get_censor_composite_mask(layers, viewport):
         elif censor_regex.search(layer.name):
             censor_layers.add(layer)
     if len(censor_layers) > 0:
-        composite = Image.new('RGBA', viewport[2:], (0,0,0,0))
-        for layer in censor_layers:
-            composite = Image.alpha_composite(composite, layer.composite(viewport=viewport))
-        return composite
+        return composite.union_mask(psd, censor_layers)
     return None
 
-def export_variant(psd, file_name, show_tags):
+def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
+    if config.dryrun:
+        export_name = compute_file_name(file_name, config.subfolders, enabled_tags)
+        logging.info(f'would export: {export_name}')
+        return
+
     # Disable all tags
     for layer in find_layers(psd, tag_regex):
         layer.visible = False
@@ -53,7 +55,7 @@ def export_variant(psd, file_name, show_tags):
 
     # Enable only active tags
     show_layers = []
-    for tag in show_tags:
+    for tag in full_enabled_tags:
         if censor_regex.search(f'[{re.escape(tag)}]'):
             has_mosaic_censor = True
         else:
@@ -62,26 +64,43 @@ def export_variant(psd, file_name, show_tags):
                 show_layers.append(layer)
 
     # Censor tags may also share a primary tag; disable them again.
-    if has_mosaic_censor:
-        for layer in find_layers(psd, censor_regex):
-            has_mosaic_censor = True
-            layer.visible = False
+    for layer in find_layers(psd, censor_regex):
+        layer.visible = False
 
-    image = composite.composite(psd)
+    image = None
+
+    # Since we encountered a mosaic censor tag, the predecessor image might have been created already
+    # and if so, we can use that and skip expensive compositing.
+    if has_mosaic_censor:
+        predecessor_file = compute_file_name(file_name, config.subfolders, enabled_tags.remove('censor'))
+        image = config._file_cache[predecessor_file]
+
+    if image is None:
+        image = composite.composite(psd)
 
     if has_mosaic_censor:
-        for layer in find_layers(psd, censor_regex):
-            layer.visible = True
-        mask = get_censor_composite_mask(show_layers, psd.viewbox)
+        mask = get_censor_composite_mask(psd, show_layers)
         if mask:
             image = apply_mosaic(image, mask)
 
-    file_name.parent.mkdir(parents=True, exist_ok=True)
-    image.save(file_name)
-    logging.info(f'exported: {file_name}')
+    export_name = compute_file_name(file_name, config.subfolders, enabled_tags)
+    export_name.parent.mkdir(parents=True, exist_ok=True)
+    image.save(export_name)
+    logging.info(f'exported: {export_name}')
+    config._file_cache[export_name] = image
 
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
+
+def compute_file_name(base_file_name, use_subfolders, enabled_tags):
+    primary_tag = fixed_primary_tag(enabled_tags[0])
+    group_name = '-'.join(enabled_tags[1:])
+    if use_subfolders:
+        next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}')
+        next_file_name = next_file_name.parent / group_name / next_file_name.name
+    else:
+        next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}-{group_name}')
+    return next_file_name
 
 def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, full_enabled_tags):
     if not secondary_tags:
@@ -93,19 +112,13 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
             next_full_enabled = full_enabled_tags.append(f'{tag}@{xor_group}')
             next_secondary = secondary_tags.remove(xor_group)
 
-            primary_tag = fixed_primary_tag(next_enabled[0])
-            group_name = '-'.join(next_enabled[1:])
-            if config.subfolders:
-                next_file_name = file_name.with_stem(f'{file_name.stem}{primary_tag}')
-                next_file_name = next_file_name.parent / group_name / next_file_name.name
-            else:
-                next_file_name = file_name.with_stem(f'{file_name.stem}{primary_tag}-{group_name}')
+            if tag != 'censor':
+                export_variant(psd, file_name, config, next_enabled, next_full_enabled)
 
-            if config.dryrun:
-                logging.info(f'would export: {next_file_name}')
-            else:
-                export_variant(psd, next_file_name, next_full_enabled)
             export_combinations(psd, file_name, config, next_secondary, next_enabled, next_full_enabled)
+
+            if tag == 'censor':
+                export_variant(psd, file_name, config, next_enabled, next_full_enabled)
 
         secondary_tags = secondary_tags.remove(xor_group)
 
@@ -136,14 +149,10 @@ def export_all_variants(file_name, config):
         primary_tags = primary_tags.add('')
 
     for primary_tag in primary_tags:
+        config._file_cache = {}
         enabled = pvector([primary_tag])
         if not config.only_secondary_tags:
-            primary_file_name =  file_name.with_stem(f'{file_name.stem}{fixed_primary_tag(primary_tag)}')
-            if config.dryrun:
-                logging.info(f'would export: {primary_file_name}')
-            else:
-                export_variant(psd, primary_file_name, enabled)
-
+            export_variant(psd, file_name, config, enabled, enabled)
         export_combinations(psd, file_name, config, secondary_tags, enabled, enabled)
 
     logging.info(f'export time: {time.perf_counter() - start}')

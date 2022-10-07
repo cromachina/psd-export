@@ -248,3 +248,45 @@ def composite(psd, tile_size=(256,256), worker_count=None):
         pool.shutdown(wait=True)
         image = Image.fromarray(np.uint8(color * 255))
         return image
+
+def union_mask_layer(psd, layers, size, offset):
+    alpha_dst = np.zeros(size + (1,), dtype=dtype)
+    for layer in layers:
+        if layer.is_group():
+            alpha_src = union_mask_tile(psd, layer, size, offset)
+        else:
+            _, alpha_src = get_pixel_layer_data(layer, size, offset)
+        if alpha_src is not None:
+            alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
+    return alpha_dst
+
+def union_mask_tile(psd, layers, size, offset, alpha):
+    tile_alpha = union_mask_layer(psd, layers, size, offset)
+    blit(alpha, tile_alpha, offset)
+
+def union_mask(psd, layers, tile_size=(256, 256), worker_count=None):
+    if worker_count is None:
+        worker_count = psutil.cpu_count(False)
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        size = psd.height, psd.width
+        alpha = np.zeros(size + (1,), dtype=dtype)
+        tile_height, tile_width = tile_size
+
+        tasks = []
+
+        y = 0
+        while y < psd.height:
+            x = 0
+            while x < psd.width:
+                size_y = min(tile_height, psd.height - y)
+                size_x = min(tile_width, psd.width - x)
+                tasks.append(pool.submit(union_mask_tile, psd, layers, (size_y, size_x), (y, x), alpha))
+                x += tile_width
+            y += tile_height
+
+        for task in tasks:
+            task.result()
+
+        pool.shutdown(wait=True)
+        image = Image.fromarray(np.uint8(alpha * 255).reshape(alpha.shape[:2]))
+        return image
