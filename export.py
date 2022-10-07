@@ -32,14 +32,15 @@ def apply_mosaic(image, mask):
     mosaic_image = image.resize(scale_dimension).resize(original_size, Image.Resampling.NEAREST)
     return Image.composite(mosaic_image, image, mask)
 
-def get_censor_composite_mask(psd, layers):
+def get_censor_composite_mask(psd, layers, censor_regex_set):
     if not layers:
         layers = psd
     censor_layers = set()
     for layer in layers:
         if layer.is_group():
-            for censor_layer in find_layers(layer, censor_regex):
-                censor_layers.add(censor_layer)
+            for regex in censor_regex_set:
+                for censor_layer in find_layers(layer, regex):
+                    censor_layers.add(censor_layer)
         elif censor_regex.search(layer.name):
             censor_layers.add(layer)
     if len(censor_layers) > 0:
@@ -57,11 +58,13 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
         layer.visible = False
 
     has_mosaic_censor = False
+    censor_regex_set = set()
 
     # Enable only active tags
     show_layers = []
     for tag in full_enabled_tags:
         if censor_regex.search(f'[{re.escape(tag)}]'):
+            censor_regex_set.add(re.compile(f'\[{re.escape(tag)}\]'))
             has_mosaic_censor = True
         else:
             for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
@@ -84,7 +87,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
         image = composite.composite(psd)
 
     if has_mosaic_censor:
-        mask = get_censor_composite_mask(psd, show_layers)
+        mask = get_censor_composite_mask(psd, show_layers, censor_regex_set)
         if mask:
             image = apply_mosaic(image, mask)
 
