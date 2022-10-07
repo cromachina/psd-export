@@ -33,6 +33,8 @@ def apply_mosaic(image, mask):
     return Image.composite(mosaic_image, image, mask)
 
 def get_censor_composite_mask(psd, layers):
+    if not layers:
+        layers = psd
     censor_layers = set()
     for layer in layers:
         if layer.is_group():
