@@ -92,6 +92,12 @@ After exporting:
   - Hue
   - Saturation
 
+- Other things that are not implemented (also not implemented in `psd-tools`):
+  - Adjustment layers (gradient map, color balance, etc.)
+  - Layer effects (shadow, glow, overlay, strokes, etc.)
+  - Font rendering
+  - Probably some other things I'm unaware of.
+
 ---
 ### Fun notes about performance
 With an AMD Ryzen 9 3900X 12-Core processor, I was able to export 18 4000x4000 images from a PSD (with 9 mosiac censor versions) in 26 seconds. Each export is about 17 layers of data (including groups). On average, the time needed to composite a 4000x4000 image after opening the PSD is 5 seconds, but after most of the shared layers are loaded, each successive composite is about 3 seconds, and censor versions are 1 second if the prior image was already generated. Each single composite is computed in parallel with numpy. File saving to PNG with PIL is a bit slow at 1 second per image, so that can be offloaded into another process and parallelized with compositing. `psd-tools`, which is used to load parts of the PSD, has a compositor that will run one export in about 45 to 60 seconds. Even with 12 cores, you will still be waiting at least 120 seconds for this batch of files. Hyperthreads do not help, because most of the task is CPU bound.
