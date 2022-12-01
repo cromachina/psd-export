@@ -1,15 +1,16 @@
 import argparse
-from concurrent.futures import ProcessPoolExecutor
-from multiprocessing.shared_memory import SharedMemory
+import glob
+import logging
 import pathlib
 import re
 import time
-import logging
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing.shared_memory import SharedMemory
 
+import numpy as np
 from PIL import Image
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
-import numpy as np
 
 import composite
 
@@ -204,4 +205,5 @@ if __name__ == '__main__':
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
     parser.add_argument('file_name', type=str)
     args = parser.parse_args()
-    export_all_variants(args.file_name, args)
+    for file_name in glob.iglob(args.file_name):
+        export_all_variants(file_name, args)
