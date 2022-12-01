@@ -49,7 +49,7 @@ def get_censor_composite_mask(psd, layers, censor_regex_set):
 
 def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     if config.dryrun:
-        export_name = compute_file_name(file_name, config.subfolders, enabled_tags)
+        export_name = compute_file_name(file_name, config, enabled_tags)
         logging.info(f'would export: {export_name}')
         return
 
@@ -80,7 +80,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     # Since we encountered a mosaic censor tag, the predecessor image might have been created already
     # and if so, we can use that and skip expensive compositing.
     if has_mosaic_censor:
-        predecessor_file = compute_file_name(file_name, config.subfolders, enabled_tags.remove('censor'))
+        predecessor_file = compute_file_name(file_name, config, enabled_tags.remove('censor'))
         image = config._file_cache.get(predecessor_file)
 
     if image is None:
@@ -91,7 +91,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
         if mask:
             image = apply_mosaic(image, mask)
 
-    export_name = compute_file_name(file_name, config.subfolders, enabled_tags)
+    export_name = compute_file_name(file_name, config, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
     save_file(config._save_pool, export_name, image)
     config._file_cache[export_name] = image
@@ -99,10 +99,14 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
 
-def compute_file_name(base_file_name, use_subfolders, enabled_tags):
-    primary_tag = fixed_primary_tag(enabled_tags[0])
-    group_name = '-'.join(enabled_tags[1:])
-    if use_subfolders:
+def compute_file_name(base_file_name, config, enabled_tags):
+    if config.primary_sub:
+        primary_tag = ''
+        group_name = '-'.join(enabled_tags)
+    else:
+        primary_tag = fixed_primary_tag(enabled_tags[0])
+        group_name = '-'.join(enabled_tags[1:])
+    if config.subfolders:
         next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}')
         next_file_name = next_file_name.parent / group_name / next_file_name.name
     else:
@@ -192,6 +196,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
         help='Export secondary tags to subfolders.')
+    parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=True,
+        help='Make primary tags into subfolders.')
     parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, default=False,
         help='Show what files would have been exported, but do not actually export anything.')
     parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
