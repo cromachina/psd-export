@@ -9,6 +9,7 @@ from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 from PIL import Image
+from PIL import ImageChops
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
 
@@ -134,11 +135,21 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
 
         secondary_tags = secondary_tags.remove(xor_group)
 
+def is_grayscale(image: Image.Image):
+    color = image.split()
+    if ImageChops.difference(color[0], color[1]).getextrema()[1] != 0:
+        return False
+    if ImageChops.difference(color[0], color[2]).getextrema()[1] != 0:
+        return False
+    return True
+
 def save_worker(file_name, shape, sm):
     logging.basicConfig(level=logging.INFO)
     try:
         array = np.ndarray(shape, dtype=np.uint8, buffer=sm.buf)
         image = Image.fromarray(array)
+        if is_grayscale(image):
+            image = image.convert('L')
         image.save(file_name)
         logging.info(f'exported: {file_name}')
     except Exception as e:
