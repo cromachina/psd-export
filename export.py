@@ -26,9 +26,9 @@ def find_layer(layer, exact_name):
         if sublayer == exact_name:
             return sublayer
 
-def apply_mosaic(image, mask):
+def apply_mosaic(image, mask, mosaic_factor=100):
     original_size = image.size
-    min_dim = min(original_size) // 100
+    min_dim = min(original_size) // mosaic_factor
     min_dim = max(4, min_dim)
     scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
     mosaic_image = image.resize(scale_dimension).resize(original_size, Image.Resampling.NEAREST)
@@ -91,7 +91,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     if has_mosaic_censor:
         mask = get_censor_composite_mask(psd, show_layers, censor_regex_set)
         if mask:
-            image = apply_mosaic(image, mask)
+            image = apply_mosaic(image, mask, config.mosaic_factor)
 
     export_name = compute_file_name(file_name, config, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
@@ -214,6 +214,8 @@ if __name__ == '__main__':
         help='Show what files would have been exported, but do not actually export anything.')
     parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
+    parser.add_argument('--mosaic_factor', default=100, type=float,
+        help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
     parser.add_argument('file_name', type=str)
     args = parser.parse_args()
     for file_name in glob.iglob(args.file_name):
