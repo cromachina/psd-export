@@ -65,7 +65,7 @@ def overlay(Cd, Cs, Ad, As):
 
 # SAI Shade
 def linear_burn(Cd, Cs, Ad, As):
-    return Cd + Cs - As
+    return Cd + Cs - As * Ad
 
 # SAI Shine
 def linear_dodge(Cd, Cs, Ad, As):
