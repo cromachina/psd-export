@@ -119,7 +119,10 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
     if not secondary_tags:
         return
 
-    for xor_group, tags in secondary_tags.items():
+    items = list(secondary_tags.items())
+    items.sort()
+
+    for xor_group, tags in items:
         for tag in tags:
             next_enabled = enabled_tags.append(tag)
             next_full_enabled = full_enabled_tags.append(f'{tag}@{xor_group}')
@@ -193,6 +196,10 @@ def export_all_variants(file_name, config):
     if len(primary_tags) == 0:
         primary_tags = primary_tags.add('')
 
+    primary_tags = list(primary_tags)
+    primary_tags.sort()
+    primary_tags = pvector(primary_tags)
+
     for primary_tag in primary_tags:
         config._file_cache = {}
         enabled = pvector([primary_tag])
@@ -208,7 +215,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
         help='Export secondary tags to subfolders.')
-    parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=True,
+    parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=False,
         help='Make primary tags into subfolders.')
     parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, default=False,
         help='Show what files would have been exported, but do not actually export anything.')
