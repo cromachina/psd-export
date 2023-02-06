@@ -144,7 +144,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             next_backdrop = None
             if sublayer.blend_mode == BlendMode.PASS_THROUGH:
                 next_backdrop = (color_dst, alpha_dst)
-            color_src, alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
+                pass_color_src, pass_alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
+            color_src, alpha_src = composite_layers(sublayer, size, offset)
         else:
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
@@ -164,13 +165,20 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
             # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
             # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
-            corrected_alpha = alpha_src ** (0.0001)
+            corrected_alpha = alpha_src
             clip_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
             if clip_src is not None:
                 color_src = clip_src
 
         # Opacity is actually FILL when special mode is true!
         opacity, special_mode = get_sai_special_mode_opacity(sublayer)
+
+        # A pass-through layer has already been blended, so just lerp instead.
+        if sublayer.blend_mode == BlendMode.PASS_THROUGH:
+            mask_src = opacity * get_mask_data(sublayer, size, offset)
+            color_dst = blendfuncs.lerp(color_dst, pass_color_src, mask_src * pass_alpha_src)
+            alpha_dst = blendfuncs.normal_alpha(alpha_dst, mask_src * alpha_src)
+            continue
 
         # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
         alpha_src *= opacity
