@@ -34,9 +34,11 @@ def to_premul(non_premul_func):
     def fn(Cd, Cs, Ad, As):
         Cdp = clip(safe_divide(Cd, Ad))
         Csp = clip(safe_divide(Cs, As))
-        Csp = non_premul_func(Cdp, Csp)
-        Csp *= As
-        return normal(Cd, Csp, Ad, As)
+        B = non_premul_func(Cdp, Csp)
+        Asrc = As * (1 - Ad)
+        Adst = Ad * (1 - As)
+        Aboth = As * Ad
+        return Csp * Asrc + Cdp * Adst + Aboth * B
     return fn
 
 def comp(C, A):
