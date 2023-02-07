@@ -3,6 +3,7 @@ from psd_tools.constants import BlendMode
 from psd_tools.composite import blend
 
 # https://dev.w3.org/SVG/modules/compositing/master/
+# http://ssp.impulsetrain.com/porterduff.html
 # How to convert from non-premultiplied blend functions to premultiplied ones:
 # Cd = Color Destination
 # Cs = Color Source
