@@ -165,7 +165,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
             # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
             # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
-            corrected_alpha = alpha_src
+            corrected_alpha = alpha_src ** 0.0001
             clip_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
             if clip_src is not None:
                 color_src = clip_src
