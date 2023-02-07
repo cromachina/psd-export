@@ -23,7 +23,7 @@ def find_layers(layer, regex):
 
 def find_layer(layer, exact_name):
     for sublayer in layer.descendants():
-        if sublayer == exact_name:
+        if sublayer.name == exact_name:
             return sublayer
 
 def apply_mosaic(image, mask, mosaic_factor=100):
