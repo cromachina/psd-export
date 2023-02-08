@@ -1,4 +1,5 @@
 import logging
+import pathlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -9,7 +10,8 @@ from psd_tools.constants import BlendMode, Clipping, Tag
 
 import blendfuncs
 
-dtype = np.float32
+# We use float64 precision to mitigate the effect of dividing group layers by their alpha
+dtype = np.float64
 
 def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
@@ -156,12 +158,12 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         tile_found = True
         group_divide = False
 
-        if clip_layers:
-            if sublayer.is_group():
-                # Un-multiply group composites so that clipping layers blend on to them correctly.
-                safe_divide(color_src, alpha_src)
-                group_divide = True
+        if sublayer.is_group() and sublayer.blend_mode != BlendMode.PASS_THROUGH:
+            # Un-multiply group composites so that we can multiply group opacity correctly
+            safe_divide(color_src, alpha_src)
+            group_divide = True
 
+        if clip_layers:
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
             # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
             # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
@@ -209,7 +211,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
     return color_dst, alpha_dst
 
-debug_path = ''
+debug_path = pathlib.Path('')
 
 def debug_layer(name, offset, data):
     if data.shape[2] == 1:
