@@ -156,12 +156,10 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             continue
 
         tile_found = True
-        group_divide = False
 
-        if sublayer.is_group() and sublayer.blend_mode != BlendMode.PASS_THROUGH:
+        if sublayer.is_group():
             # Un-multiply group composites so that we can multiply group opacity correctly
             safe_divide(color_src, alpha_src)
-            group_divide = True
 
         if clip_layers:
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
@@ -177,17 +175,20 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
         # A pass-through layer has already been blended, so just lerp instead.
         if sublayer.blend_mode == BlendMode.PASS_THROUGH:
-            mask_src = opacity * get_mask_data(sublayer, size, offset)
-            color_dst = blendfuncs.lerp(color_dst, pass_color_src, mask_src * pass_alpha_src)
-            alpha_dst = blendfuncs.normal_alpha(alpha_dst, mask_src * alpha_src)
+            safe_divide(pass_color_src, pass_alpha_src)
+            pass_alpha_src *= opacity
+            pass_color_src *= pass_alpha_src
+            pass_color_src = blendfuncs.normal(color_dst, pass_color_src, alpha_dst, pass_alpha_src)
+            mask_src = get_mask_data(sublayer, size, offset)
+            color_dst = blendfuncs.lerp(color_dst, pass_color_src, mask_src)
+            alpha_dst = blendfuncs.normal_alpha(alpha_dst, mask_src * pass_alpha_src)
             continue
 
         # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
         alpha_src *= opacity
 
         # Now we can 'premultiply' the color_src for the main blend operation.
-        if group_divide or not sublayer.is_group():
-            color_src *= alpha_src
+        color_src *= alpha_src
 
         # Run the blend operation.
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode, special_mode)
