@@ -83,7 +83,13 @@ After exporting:
   - Difference
 
 - Blend modes that mostly work, but look slightly different when the layer below has transparency:
-  - Hard Mix
+  - Linear Dodge (slightly transparent things end up too bright)
+  - Hard Mix (blending appears to be non-linear)
+
+- Blend modes that mostly work, but have very different results when the layer below has transparency (0 alpha in a group backdrop will show a darker color than it should, could be an issue with black backdrops):
+  - Linear Light
+  - Hard Light
+  - Pin Light
 
 - Blend modes that have a slightly different result even at full opacity:
   - Soft Light
