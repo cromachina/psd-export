@@ -1,5 +1,5 @@
-numpy==1.23.3
-Pillow==9.2.0
-psd_tools==1.9.23
-psutil==5.9.2
-pyrsistent==0.18.1
+numpy
+Pillow
+psd_tools
+psutil
+pyrsistent
