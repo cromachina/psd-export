@@ -155,7 +155,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
         # Empty tile, can just ignore.
-        if color_src is None:
+        if color_src is None or not alpha_src.any():
             continue
 
         tile_found = True
