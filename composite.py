@@ -34,11 +34,16 @@ def swap(a):
     x, y = a
     return y, x
 
-cache_lock = threading.Lock()
+def create_layer_cache_locks(layers):
+    for sublayer in layers:
+        if sublayer.is_group():
+            create_layer_cache_locks(sublayer)
+        else:
+            sublayer._data_cache_lock = threading.Lock()
 
 def get_cached_layer_data(layer, channel):
     attr_name = f'_cache_{channel}'
-    with cache_lock:
+    with layer._data_cache_lock:
         if hasattr(layer, attr_name):
             return getattr(layer, attr_name)
         else:
@@ -231,6 +236,7 @@ def composite(psd, tile_size=(256,256), worker_count=None):
     if worker_count is None:
         worker_count = psutil.cpu_count(False)
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        create_layer_cache_locks(psd)
         size = psd.height, psd.width
         color = np.ndarray(size + (3,), dtype=dtype)
         alpha = np.ndarray(size + (1,), dtype=dtype)
