@@ -6,7 +6,9 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import psutil
 from PIL import Image
+from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
+from pyrsistent import pset
 
 import blendfuncs
 
@@ -34,22 +36,64 @@ def swap(a):
     x, y = a
     return y, x
 
-def create_layer_cache_locks(layers):
-    for sublayer in layers:
+def get_visibility_all_children(layer:Layer, visited):
+    if layer.visible:
+        visited = visited.add(id(layer))
+    if layer.is_group():
+        for sublayer in layer:
+            visited = get_visibility_all_children(sublayer, visited)
+    return visited
+
+def get_visibility_dependency_sub(layer:Layer, visited=pset()):
+    if id(layer) in visited:
+        return visited
+    found = False
+    for sublayer in reversed(layer.parent):
+        if sublayer == layer:
+            found = True
+        if found:
+            if sublayer.visible:
+                visited = get_visibility_all_children(sublayer, visited)
+    if layer.parent.kind != 'psdimage' and layer.parent.blend_mode == BlendMode.PASS_THROUGH:
+        visited = get_visibility_dependency_sub(layer.parent, visited)
+    return visited
+
+def get_visibility_dependency(layer:Layer, clip_layers:list[Layer]):
+    visited = get_visibility_dependency_sub(layer)
+    for sublayer in clip_layers:
+        visited = get_visibility_all_children(sublayer, visited)
+    return visited
+
+def get_tile_cache(layer:Layer, offset):
+    if not hasattr(layer, '_composite_cache'):
+        layer._composite_cache = {}
+    if offset not in layer._composite_cache:
+        layer._composite_cache[offset] = {}
+    return layer._composite_cache[offset]
+
+def create_layer_cache_locks(layer):
+    for sublayer in layer:
+        sublayer._composite_cache_lock = threading.Lock()
         if sublayer.is_group():
             create_layer_cache_locks(sublayer)
         else:
             sublayer._data_cache_lock = threading.Lock()
 
-def get_cached_layer_data(layer, channel):
+def get_cached_composite(layer:Layer, offset, visibility_dependency):
+    with layer._composite_cache_lock:
+        return get_tile_cache(layer, offset).get(visibility_dependency, None)
+
+def set_cached_composite(layer:Layer, offset, visibilty_dependency, tile_data):
+    with layer._composite_cache_lock:
+        get_tile_cache(layer, offset)[visibilty_dependency] = tile_data
+
+def get_cached_layer_data(layer:Layer, channel):
     attr_name = f'_cache_{channel}'
     with layer._data_cache_lock:
-        if hasattr(layer, attr_name):
-            return getattr(layer, attr_name)
-        else:
-            data = layer.numpy(channel)
-            setattr(layer, attr_name, data)
-            return data
+        if not hasattr(layer, attr_name):
+            setattr(layer, attr_name, layer.numpy(channel))
+        return getattr(layer, attr_name)
+
 
 def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
     data = get_cached_layer_data(layer, channel)
@@ -146,6 +190,13 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         if not sublayer.visible:
             continue
 
+        visibility_dependency = get_visibility_dependency(sublayer, clip_layers)
+        cached_composite = get_cached_composite(sublayer, offset, visibility_dependency)
+        if cached_composite is not None:
+            color_dst, alpha_dst = cached_composite
+            tile_found = True
+            continue
+
         if sublayer.is_group():
             next_backdrop = None
             if sublayer.blend_mode == BlendMode.PASS_THROUGH:
@@ -170,6 +221,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             mask_src = mask_src * opacity
             color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
             alpha_dst = blendfuncs.lerp(alpha_dst, alpha_src, mask_src)
+            set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
             continue
 
         if sublayer.is_group():
@@ -207,6 +259,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
         alpha_src = alpha_src * mask_src
         alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
+
+        set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
 
     if not tile_found:
         return None, None
