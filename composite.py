@@ -95,9 +95,9 @@ def get_layer_and_clip_groupings(layers):
         else:
             clip_stack.reverse()
             if layer.blend_mode == BlendMode.PASS_THROUGH:
-                grouped_layers.append((layer, []))
                 for sublayer in clip_stack:
                     grouped_layers.append((sublayer, []))
+                grouped_layers.append((layer, []))
             else:
                 grouped_layers.append((layer, clip_stack))
             clip_stack = []
