@@ -145,8 +145,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             next_backdrop = None
             if sublayer.blend_mode == BlendMode.PASS_THROUGH:
                 next_backdrop = (color_dst, alpha_dst)
-                pass_color_src, pass_alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
-            color_src, alpha_src = composite_layers(sublayer, size, offset)
+            color_src, alpha_src = composite_layers(sublayer, size, offset, next_backdrop)
         else:
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
@@ -155,6 +154,18 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             continue
 
         tile_found = True
+
+        # Opacity is actually FILL when special mode is true!
+        opacity, special_mode = get_sai_special_mode_opacity(sublayer)
+
+        # A pass-through layer has already been blended, so just lerp instead.
+        # NOTE: Clipping layers do not apply to pass layers, as if clipping were simply disabled.
+        if sublayer.blend_mode == BlendMode.PASS_THROUGH:
+            mask_src = get_mask_data(sublayer, size, offset)
+            mask_src = mask_src * opacity
+            color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
+            alpha_dst = blendfuncs.lerp(alpha_dst, alpha_src, mask_src)
+            continue
 
         if sublayer.is_group():
             # Un-multiply group composites so that we can multiply group opacity correctly
@@ -168,17 +179,6 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             clip_src, _ = composite_layers(clip_layers, size, offset, (color_src, corrected_alpha), True)
             if clip_src is not None:
                 color_src = clip_src
-
-        # Opacity is actually FILL when special mode is true!
-        opacity, special_mode = get_sai_special_mode_opacity(sublayer)
-
-        # A pass-through layer has already been blended, so just lerp instead.
-        if sublayer.blend_mode == BlendMode.PASS_THROUGH:
-            mask_src = get_mask_data(sublayer, size, offset)
-            mask_src = mask_src * opacity
-            color_dst = blendfuncs.lerp(color_dst, pass_color_src, mask_src)
-            alpha_dst = blendfuncs.lerp(alpha_dst, pass_alpha_src, mask_src)
-            continue
 
         # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
         alpha_src = alpha_src * opacity
