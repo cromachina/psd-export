@@ -46,7 +46,7 @@ def get_cached_layer_data(layer, channel):
             setattr(layer, attr_name, data)
             return data
 
-def padded_data(layer, channel, size, offset, data_offset, fill=0):
+def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
     data = get_cached_layer_data(layer, channel)
     if data is None:
         return None
@@ -54,21 +54,21 @@ def padded_data(layer, channel, size, offset, data_offset, fill=0):
     blit(pad, data, np.array(swap(data_offset)) - np.array(offset))
     return pad
 
-def intersects(a, b):
+def is_intersecting(a, b):
     inter = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
     return not (inter[0] >= inter[2] or inter[1] >= inter[3])
 
-def tile_has_data(layer, size, offset):
+def has_tile_data(layer, size, offset):
     offset = swap(offset)
     size = swap(size)
     bbox = offset + (size[0] + offset[0], size[1] + offset[1])
-    return intersects(layer.bbox, bbox)
+    return is_intersecting(layer.bbox, bbox)
 
 def get_pixel_layer_data(layer, size, offset):
-    if not tile_has_data(layer, size, offset):
+    if not has_tile_data(layer, size, offset):
         return None, None
-    color_src = padded_data(layer, 'color', size, offset, layer.offset)
-    alpha_src = padded_data(layer, 'shape', size, offset, layer.offset)
+    color_src = get_padded_data(layer, 'color', size, offset, layer.offset)
+    alpha_src = get_padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
         alpha_src = np.ones(size + (1,), dtype=dtype)
     return color_src, alpha_src
@@ -76,7 +76,7 @@ def get_pixel_layer_data(layer, size, offset):
 def get_mask_data(layer, size, offset):
     mask = layer.mask
     if mask and not mask.disabled:
-        return padded_data(layer, 'mask', size, offset, (mask.left, mask.top), mask.background_color / 255.0)
+        return get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), mask.background_color / 255.0)
     else:
         return np.ones(size + (1,), dtype=dtype)
 
