@@ -323,7 +323,7 @@ def union_mask_layer(psd, layers, size, offset):
             alpha_src = union_mask_tile(psd, layer, size, offset)
         else:
             _, alpha_src = get_pixel_layer_data(layer, size, offset)
-        if alpha_src is not None:
+        if alpha_src is not None and alpha_src.any():
             alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
     return alpha_dst
 
