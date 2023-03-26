@@ -1,5 +1,5 @@
 numpy
-opencv
+opencv-python
 psd_tools
 psutil
 pyrsistent
