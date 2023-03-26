@@ -99,7 +99,13 @@ def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
     data = get_cached_layer_data(layer, channel)
     if data is None:
         return None
-    pad = np.full(size + data.shape[2:], fill_value=fill, dtype=dtype)
+    shape = size + data.shape[2:]
+    if fill == 0:
+        pad = np.zeros(shape, dtype=dtype)
+    elif fill == 1:
+        pad = np.ones(shape, dtype=dtype)
+    else:
+        pad = np.full(shape, fill_value=fill, dtype=dtype)
     blit(pad, data, np.array(swap(data_offset)) - np.array(offset))
     return pad
 
