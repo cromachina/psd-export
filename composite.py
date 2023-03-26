@@ -109,24 +109,38 @@ def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
     blit(pad, data, np.array(swap(data_offset)) - np.array(offset))
     return pad
 
+def intersection(a, b):
+    return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+
 def is_intersecting(a, b):
-    inter = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+    inter = intersection(a, b)
     return not (inter[0] >= inter[2] or inter[1] >= inter[3])
 
-def has_tile_data(layer, size, offset):
+def make_bbox(size, offset):
     offset = swap(offset)
     size = swap(size)
-    bbox = offset + (size[0] + offset[0], size[1] + offset[1])
-    return is_intersecting(layer.bbox, bbox)
+    return offset + (size[0] + offset[0], size[1] + offset[1])
+
+def has_tile_data(layer, size, offset):
+    return is_intersecting(layer.bbox, make_bbox(size, offset))
+
+def is_zero_alpha(layer, size, offset):
+    data = get_cached_layer_data(layer, 'shape')
+    if data is None:
+        return False
+    bbox = intersection(layer.bbox, make_bbox(size, offset))
+    offset = layer.offset
+    bbox = (bbox[0] - offset[0], bbox[1] - offset[1], bbox[2] - offset[0], bbox[3] - offset[1])
+    return not data[bbox[1]:bbox[3], bbox[0]:bbox[2]].any()
 
 def get_pixel_layer_data(layer, size, offset):
     if not has_tile_data(layer, size, offset):
         return None, None
+    if is_zero_alpha(layer, size, offset):
+        return None, None
     alpha_src = get_padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
         alpha_src = np.ones(size + (1,), dtype=dtype)
-    elif not alpha_src.any():
-        return None, None
     color_src = get_padded_data(layer, 'color', size, offset, layer.offset)
     return color_src, alpha_src
 
