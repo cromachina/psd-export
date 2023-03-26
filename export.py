@@ -171,7 +171,6 @@ def save_file(file_name, image):
     pool.submit(save_worker, file_name, array.shape, sm)
 
 def export_all_variants(file_name, config):
-
     psd = PSDImage.open(file_name)
     file_name = pathlib.Path(file_name).with_suffix('.png')
     tags = pset()
