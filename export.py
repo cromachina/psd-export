@@ -7,15 +7,14 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing.shared_memory import SharedMemory
 
+import cv2
 import numpy as np
-from PIL import Image
-from PIL import ImageChops
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
 
 import composite
 
-pool = ProcessPoolExecutor(4)
+pool = ProcessPoolExecutor(1)
 
 tag_regex = re.compile('\[(.+?)\]')
 censor_regex = re.compile('\[censor\]|\[censor@.*?\]')
@@ -29,12 +28,13 @@ def find_layer(layer, exact_name):
             return sublayer
 
 def apply_mosaic(image, mask, mosaic_factor=100):
-    original_size = image.size
+    original_size = image.shape[:2]
     min_dim = min(original_size) // mosaic_factor
     min_dim = max(4, min_dim)
     scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
-    mosaic_image = image.resize(scale_dimension).resize(original_size, Image.Resampling.NEAREST)
-    return Image.composite(mosaic_image, image, mask)
+    mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
+    mosaic_image = cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
+    return composite.parallel_lerp(image, mosaic_image, mask)
 
 def get_censor_composite_mask(psd, layers, censor_regex_set):
     if not layers:
@@ -92,7 +92,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
 
     if has_mosaic_censor:
         mask = get_censor_composite_mask(psd, show_layers, censor_regex_set)
-        if mask:
+        if mask is not None:
             image = apply_mosaic(image, mask, config.mosaic_factor)
 
     export_name = compute_file_name(file_name, config, enabled_tags)
@@ -140,35 +140,38 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
 
         secondary_tags = secondary_tags.remove(xor_group)
 
-def is_grayscale(image: Image.Image):
-    color = image.split()
-    if ImageChops.difference(color[0], color[1]).getextrema()[1] != 0:
-        return False
-    if ImageChops.difference(color[0], color[2]).getextrema()[1] != 0:
-        return False
-    return True
+def is_grayscale(image):
+    r, g, b = image[:,:,0], image[:,:,1], image[:,:,2]
+    return (r == g).all() and (g == b).all()
 
-def save_worker(file_name, shape, sm):
+def save_worker(file_name, image_sm):
     logging.basicConfig(level=logging.INFO)
     try:
-        array = np.ndarray(shape, dtype=np.uint8, buffer=sm.buf)
-        image = Image.fromarray(array)
+        image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
         if is_grayscale(image):
-            image = image.convert('L')
-        image.save(file_name)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        else:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(file_name, image)
         logging.info(f'exported: {file_name}')
     except Exception as e:
         logging.exception(e)
     finally:
-        sm.close()
-        sm.unlink()
+        delete_shared(image_sm)
+
+def make_shared(image):
+    sm = SharedMemory(create=True, size=image.nbytes)
+    a = np.ndarray(image.shape, dtype=image.dtype, buffer=sm.buf)
+    np.copyto(a, image)
+    return (image.shape, image.dtype, sm)
+
+def delete_shared(image_sm):
+    image_sm[2].close()
+    image_sm[2].unlink()
 
 def save_file(file_name, image):
-    array = np.asarray(image)
-    sm = SharedMemory(create=True, size=array.nbytes)
-    a = np.ndarray(array.shape, dtype=array.dtype, buffer=sm.buf)
-    np.copyto(a, array)
-    pool.submit(save_worker, file_name, array.shape, sm)
+    image = (image * 255).astype(np.uint8)
+    pool.submit(save_worker, str(file_name), make_shared(image))
 
 def export_all_variants(file_name, config):
     psd = PSDImage.open(file_name)

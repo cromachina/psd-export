@@ -1,5 +1,5 @@
 numpy
-Pillow
+opencv
 psd_tools
 psutil
 pyrsistent

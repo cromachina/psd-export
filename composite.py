@@ -3,12 +3,11 @@ import pathlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import cv2
 import numpy as np
 import psutil
-from PIL import Image
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
-from pyrsistent import pset
 
 import blendfuncs
 
@@ -280,14 +279,29 @@ debug_path = pathlib.Path('')
 def debug_layer(name, offset, data):
     if data.shape[2] == 1:
         data = data.reshape(data.shape[:2])
-    image = Image.fromarray((data * 255).astype(np.uint8))
-    image.save(debug_path / f'{name}-{offset}.png')
+    data = (data * 255).astype(np.uint8)
+    data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
+    path = debug_path / f'{name}-{offset}.png'
+    cv2.imwrite(str(path), data)
 
 def composite_tile(psd, size, offset, color, alpha):
     tile_color, tile_alpha = composite_layers(psd, size, offset)
     if tile_color is not None:
         blit(color, tile_color, offset)
         blit(alpha, tile_alpha, offset)
+
+def generate_tiles(size, tile_size):
+    height, width = size
+    tile_height, tile_width = tile_size
+    y = 0
+    while y < height:
+        x = 0
+        while x < width:
+            size_y = min(tile_height, height - y)
+            size_x = min(tile_width, width - x)
+            yield ((size_y, size_x), (y, x))
+            x += tile_width
+        y += tile_height
 
 def composite(psd, tile_size=(256,256)):
     '''
@@ -298,26 +312,17 @@ def composite(psd, tile_size=(256,256)):
     size = psd.height, psd.width
     color = np.ndarray(size + (3,), dtype=dtype)
     alpha = np.ndarray(size + (1,), dtype=dtype)
-    tile_height, tile_width = tile_size
 
     tasks = []
 
-    y = 0
-    while y < psd.height:
-        x = 0
-        while x < psd.width:
-            size_y = min(tile_height, psd.height - y)
-            size_x = min(tile_width, psd.width - x)
-            tasks.append(pool.submit(composite_tile, psd, (size_y, size_x), (y, x), color, alpha))
-            x += tile_width
-        y += tile_height
+    for (tile_size, tile_offset) in generate_tiles(size, tile_size):
+        tasks.append(pool.submit(composite_tile, psd, tile_size, tile_offset, color, alpha))
 
     # Invoke the result to bubble exceptions. Allows for debugging exceptions in worker threads.
     for task in tasks:
         task.result()
 
-    image = Image.fromarray(np.uint8(color * 255))
-    return image
+    return color
 
 def union_mask_layer(psd, layers, size, offset):
     alpha_dst = np.zeros(size + (1,), dtype=dtype)
@@ -337,22 +342,41 @@ def union_mask_tile(psd, layers, size, offset, alpha):
 def union_mask(psd, layers, tile_size=(256, 256)):
     size = psd.height, psd.width
     alpha = np.zeros(size + (1,), dtype=dtype)
-    tile_height, tile_width = tile_size
 
     tasks = []
 
-    y = 0
-    while y < psd.height:
-        x = 0
-        while x < psd.width:
-            size_y = min(tile_height, psd.height - y)
-            size_x = min(tile_width, psd.width - x)
-            tasks.append(pool.submit(union_mask_tile, psd, layers, (size_y, size_x), (y, x), alpha))
-            x += tile_width
-        y += tile_height
+    for (tile_size, tile_offset) in generate_tiles(size, tile_size):
+        tasks.append(pool.submit(union_mask_tile, psd, layers, tile_size, tile_offset, alpha))
 
     for task in tasks:
         task.result()
 
-    image = Image.fromarray(np.uint8(alpha * 255).reshape(alpha.shape[:2]))
-    return image
+    return alpha
+
+def lerp_tile(image_a, image_b, mask, tile_size, tile_offset, temp):
+    h, w = tile_size
+    y, x = tile_offset
+    index = np.s_[y:(y + h), x:(x + w)]
+    image_a_sub = image_a[index]
+    image_b_sub = image_b[index]
+    mask_sub = mask[index]
+    temp_sub = temp[index]
+    np.subtract(image_b_sub, image_a_sub, out=temp_sub)
+    np.multiply(temp_sub, mask_sub, out=temp_sub)
+    np.add(image_a_sub, temp_sub, out=image_a_sub)
+
+def parallel_lerp(image_a, image_b, mask):
+    size = image_a.shape[:2]
+    height, width = size
+    tile_size = (np.maximum(1, int(256 ** 2 / width)), width)
+    tasks = []
+
+    temp = np.empty_like(image_a)
+
+    for (tile_size, tile_offset) in generate_tiles(size, tile_size):
+        tasks.append(pool.submit(lerp_tile, image_a, image_b, mask, tile_size, tile_offset, temp))
+
+    for task in tasks:
+        task.result()
+
+    return image_a
