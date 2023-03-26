@@ -216,7 +216,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             mask_src = get_mask_data(sublayer, size, offset)
             if mask_src is None:
                 mask_src = 1.0
-            mask_src = mask_src * opacity
+            mask_src *= opacity
             if np.isscalar(mask_src) and mask_src == 1.0:
                 color_dst = color_src
                 alpha_dst = alpha_src
@@ -228,7 +228,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
         if sublayer.is_group():
             # Un-multiply group composites so that we can multiply group opacity correctly
-            color_src = blendfuncs.clip(blendfuncs.safe_divide(color_src, alpha_src))
+            blendfuncs.safe_divide(color_src, alpha_src, out=color_src)
+            blendfuncs.clip(color_src, out=color_src)
 
         if clip_layers:
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
@@ -240,10 +241,10 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
                 color_src = clip_src
 
         # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
-        alpha_src = alpha_src * opacity
+        alpha_src *= opacity
 
         # Now we can 'premultiply' the color_src for the main blend operation.
-        color_src = color_src * alpha_src
+        color_src *= alpha_src
 
         # Run the blend operation.
         blend_func = blendfuncs.get_blend_func(sublayer.blend_mode, special_mode)
@@ -251,7 +252,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
         # Premultiplied blending may cause out-of-range values, so it must be clipped.
         if sublayer.blend_mode != BlendMode.NORMAL:
-            color_src = blendfuncs.clip(color_src)
+            blendfuncs.clip(color_src, out=color_src)
 
         # We apply the mask last and LERP the blended result onto the destination.
         # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
@@ -264,7 +265,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
         # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
         if mask_src is not None:
-            alpha_src = alpha_src * mask_src
+            alpha_src *= mask_src
         alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
         set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))

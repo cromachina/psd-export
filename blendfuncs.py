@@ -21,12 +21,12 @@ from psd_tools.composite import blend
 # - The result can be optimized by expanding and simplifying.
 # - Color burn is the odd one out. Its conversion is a bit confusing.
 
-def clip(color):
-    return np.clip(color, 0, 1)
+def clip(color, out=None):
+    return np.clip(color, 0, 1, out=out)
 
-def safe_divide(a, b):
+def safe_divide(a, b, out=None):
     with np.errstate(divide='ignore', invalid='ignore'):
-        return a / (b + np.finfo(np.float32).eps)
+        return np.divide(a, (b + np.finfo(np.float32).eps), out=out)
 
 # Turn a non-premultiplied blend func into a premultiplied one.
 # The result may sometimes look a little bit different from SAI.
