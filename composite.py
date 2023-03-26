@@ -12,6 +12,9 @@ from pyrsistent import pset
 
 import blendfuncs
 
+worker_count = psutil.cpu_count(False)
+pool = ThreadPoolExecutor(max_workers=worker_count)
+
 # We use float64 precision to mitigate the effect of dividing group layers by their alpha
 dtype = np.float64
 
@@ -38,31 +41,31 @@ def swap(a):
 
 def get_visibility_all_children(layer:Layer, visited):
     if layer.visible:
-        visited = visited.add(id(layer))
+        visited.add(id(layer))
     if layer.is_group():
         for sublayer in layer:
-            visited = get_visibility_all_children(sublayer, visited)
+            get_visibility_all_children(sublayer, visited)
     return visited
 
-def get_visibility_dependency_sub(layer:Layer, visited=pset()):
+def get_visibility_dependency_sub(layer:Layer, visited):
     if id(layer) in visited:
-        return visited
+        return
     found = False
     for sublayer in reversed(layer.parent):
         if sublayer == layer:
             found = True
         if found:
             if sublayer.visible:
-                visited = get_visibility_all_children(sublayer, visited)
+                get_visibility_all_children(sublayer, visited)
     if layer.parent.kind != 'psdimage' and layer.parent.blend_mode == BlendMode.PASS_THROUGH:
-        visited = get_visibility_dependency_sub(layer.parent, visited)
-    return visited
+        get_visibility_dependency_sub(layer.parent, visited)
 
 def get_visibility_dependency(layer:Layer, clip_layers:list[Layer]):
-    visited = get_visibility_dependency_sub(layer)
+    visited = set()
+    get_visibility_dependency_sub(layer, visited)
     for sublayer in clip_layers:
-        visited = get_visibility_all_children(sublayer, visited)
-    return visited
+        get_visibility_all_children(sublayer, visited)
+    return frozenset(visited)
 
 def get_tile_cache(layer:Layer, offset):
     if not hasattr(layer, '_composite_cache'):
@@ -74,10 +77,9 @@ def get_tile_cache(layer:Layer, offset):
 def create_layer_cache_locks(layer):
     for sublayer in layer:
         sublayer._composite_cache_lock = threading.Lock()
+        sublayer._data_cache_lock = threading.Lock()
         if sublayer.is_group():
             create_layer_cache_locks(sublayer)
-        else:
-            sublayer._data_cache_lock = threading.Lock()
 
 def get_cached_composite(layer:Layer, offset, visibility_dependency):
     with layer._composite_cache_lock:
@@ -93,7 +95,6 @@ def get_cached_layer_data(layer:Layer, channel):
         if not hasattr(layer, attr_name):
             setattr(layer, attr_name, layer.numpy(channel))
         return getattr(layer, attr_name)
-
 
 def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
     data = get_cached_layer_data(layer, channel)
@@ -116,10 +117,12 @@ def has_tile_data(layer, size, offset):
 def get_pixel_layer_data(layer, size, offset):
     if not has_tile_data(layer, size, offset):
         return None, None
-    color_src = get_padded_data(layer, 'color', size, offset, layer.offset)
     alpha_src = get_padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
         alpha_src = np.ones(size + (1,), dtype=dtype)
+    elif not alpha_src.any():
+        return None, None
+    color_src = get_padded_data(layer, 'color', size, offset, layer.offset)
     return color_src, alpha_src
 
 def get_mask_data(layer, size, offset):
@@ -127,7 +130,7 @@ def get_mask_data(layer, size, offset):
     if mask and not mask.disabled:
         return get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), mask.background_color / 255.0)
     else:
-        return np.ones(size + (1,), dtype=dtype)
+        return None
 
 def is_clipping(layer):
     return layer._record.clipping == Clipping.NON_BASE
@@ -169,8 +172,8 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
     if backdrop:
         color_dst, alpha_dst = backdrop
     else:
-        color_dst = np.zeros(size + (3,), dtype=dtype)
-        alpha_dst = np.zeros(size + (1,), dtype=dtype)
+        color_dst = 0.0
+        alpha_dst = 0.0
 
     if clip_mode:
         layers = map(lambda l: (l, []), layers)
@@ -199,7 +202,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
             color_src, alpha_src = get_pixel_layer_data(sublayer, size, offset)
 
         # Empty tile, can just ignore.
-        if color_src is None or not alpha_src.any():
+        if color_src is None:
             continue
 
         tile_found = True
@@ -211,9 +214,15 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         # NOTE: Clipping layers do not apply to pass layers, as if clipping were simply disabled.
         if sublayer.blend_mode == BlendMode.PASS_THROUGH:
             mask_src = get_mask_data(sublayer, size, offset)
+            if mask_src is None:
+                mask_src = 1.0
             mask_src = mask_src * opacity
-            color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
-            alpha_dst = blendfuncs.lerp(alpha_dst, alpha_src, mask_src)
+            if np.isscalar(mask_src) and mask_src == 1.0:
+                color_dst = color_src
+                alpha_dst = alpha_src
+            else:
+                color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
+                alpha_dst = blendfuncs.lerp(alpha_dst, alpha_src, mask_src)
             set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
             continue
 
@@ -241,16 +250,21 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
 
         # Premultiplied blending may cause out-of-range values, so it must be clipped.
-        color_src = blendfuncs.clip(color_src)
+        if sublayer.blend_mode != BlendMode.NORMAL:
+            color_src = blendfuncs.clip(color_src)
 
         # We apply the mask last and LERP the blended result onto the destination.
         # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
         # will yield a slightly different result from those programs.
         mask_src = get_mask_data(sublayer, size, offset)
-        color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
+        if mask_src is not None:
+            color_dst = blendfuncs.lerp(color_dst, color_src, mask_src)
+        else:
+            color_dst = color_src
 
         # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
-        alpha_src = alpha_src * mask_src
+        if mask_src is not None:
+            alpha_src = alpha_src * mask_src
         alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
 
         set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
@@ -274,40 +288,35 @@ def composite_tile(psd, size, offset, color, alpha):
         blit(color, tile_color, offset)
         blit(alpha, tile_alpha, offset)
 
-def composite(psd, tile_size=(256,256), worker_count=None):
+def composite(psd, tile_size=(256,256)):
     '''
     Composite the given PSD and return an PIL image.
     `tile_size` is arranged by (height, width)
-    `worker_count` is for multi-threading. Set to None to use the number of physical processors
     '''
-    if worker_count is None:
-        worker_count = psutil.cpu_count(False)
-    with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        create_layer_cache_locks(psd)
-        size = psd.height, psd.width
-        color = np.ndarray(size + (3,), dtype=dtype)
-        alpha = np.ndarray(size + (1,), dtype=dtype)
-        tile_height, tile_width = tile_size
+    create_layer_cache_locks(psd)
+    size = psd.height, psd.width
+    color = np.ndarray(size + (3,), dtype=dtype)
+    alpha = np.ndarray(size + (1,), dtype=dtype)
+    tile_height, tile_width = tile_size
 
-        tasks = []
+    tasks = []
 
-        y = 0
-        while y < psd.height:
-            x = 0
-            while x < psd.width:
-                size_y = min(tile_height, psd.height - y)
-                size_x = min(tile_width, psd.width - x)
-                tasks.append(pool.submit(composite_tile, psd, (size_y, size_x), (y, x), color, alpha))
-                x += tile_width
-            y += tile_height
+    y = 0
+    while y < psd.height:
+        x = 0
+        while x < psd.width:
+            size_y = min(tile_height, psd.height - y)
+            size_x = min(tile_width, psd.width - x)
+            tasks.append(pool.submit(composite_tile, psd, (size_y, size_x), (y, x), color, alpha))
+            x += tile_width
+        y += tile_height
 
-        # Invoke the result to bubble exceptions. Allows for debugging exceptions in worker threads.
-        for task in tasks:
-            task.result()
+    # Invoke the result to bubble exceptions. Allows for debugging exceptions in worker threads.
+    for task in tasks:
+        task.result()
 
-        pool.shutdown(wait=True)
-        image = Image.fromarray(np.uint8(color * 255))
-        return image
+    image = Image.fromarray(np.uint8(color * 255))
+    return image
 
 def union_mask_layer(psd, layers, size, offset):
     alpha_dst = np.zeros(size + (1,), dtype=dtype)
@@ -324,29 +333,25 @@ def union_mask_tile(psd, layers, size, offset, alpha):
     tile_alpha = union_mask_layer(psd, layers, size, offset)
     blit(alpha, tile_alpha, offset)
 
-def union_mask(psd, layers, tile_size=(256, 256), worker_count=None):
-    if worker_count is None:
-        worker_count = psutil.cpu_count(False)
-    with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        size = psd.height, psd.width
-        alpha = np.zeros(size + (1,), dtype=dtype)
-        tile_height, tile_width = tile_size
+def union_mask(psd, layers, tile_size=(256, 256)):
+    size = psd.height, psd.width
+    alpha = np.zeros(size + (1,), dtype=dtype)
+    tile_height, tile_width = tile_size
 
-        tasks = []
+    tasks = []
 
-        y = 0
-        while y < psd.height:
-            x = 0
-            while x < psd.width:
-                size_y = min(tile_height, psd.height - y)
-                size_x = min(tile_width, psd.width - x)
-                tasks.append(pool.submit(union_mask_tile, psd, layers, (size_y, size_x), (y, x), alpha))
-                x += tile_width
-            y += tile_height
+    y = 0
+    while y < psd.height:
+        x = 0
+        while x < psd.width:
+            size_y = min(tile_height, psd.height - y)
+            size_x = min(tile_width, psd.width - x)
+            tasks.append(pool.submit(union_mask_tile, psd, layers, (size_y, size_x), (y, x), alpha))
+            x += tile_width
+        y += tile_height
 
-        for task in tasks:
-            task.result()
+    for task in tasks:
+        task.result()
 
-        pool.shutdown(wait=True)
-        image = Image.fromarray(np.uint8(alpha * 255).reshape(alpha.shape[:2]))
-        return image
+    image = Image.fromarray(np.uint8(alpha * 255).reshape(alpha.shape[:2]))
+    return image
