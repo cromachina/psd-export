@@ -129,9 +129,6 @@ def get_mask_data(layer, size, offset):
     else:
         return np.ones(size + (1,), dtype=dtype)
 
-def clip(color):
-    return np.clip(color, 0, 1)
-
 def is_clipping(layer):
     return layer._record.clipping == Clipping.NON_BASE
 
@@ -155,10 +152,6 @@ def get_layer_and_clip_groupings(layers):
         grouped_layers.append((sublayer, []))
     grouped_layers.reverse()
     return grouped_layers
-
-def safe_divide(a, b):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return clip(np.divide(a, b + np.finfo(dtype).eps))
 
 # From Systemax support: The 8 special blend modes use the following layer tag blocks:
 # 'tsly' is set to 0
@@ -226,7 +219,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
 
         if sublayer.is_group():
             # Un-multiply group composites so that we can multiply group opacity correctly
-            color_src = safe_divide(color_src, alpha_src)
+            color_src = blendfuncs.clip(blendfuncs.safe_divide(color_src, alpha_src))
 
         if clip_layers:
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without
@@ -248,7 +241,7 @@ def composite_layers(layers, size, offset, backdrop=None, clip_mode=False):
         color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
 
         # Premultiplied blending may cause out-of-range values, so it must be clipped.
-        color_src = clip(color_src)
+        color_src = blendfuncs.clip(color_src)
 
         # We apply the mask last and LERP the blended result onto the destination.
         # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
