@@ -15,6 +15,8 @@ from pyrsistent import pmap, pset, pvector
 
 import composite
 
+pool = ProcessPoolExecutor(4)
+
 tag_regex = re.compile('\[(.+?)\]')
 censor_regex = re.compile('\[censor\]|\[censor@.*?\]')
 
@@ -95,7 +97,7 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
 
     export_name = compute_file_name(file_name, config, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
-    save_file(config._save_pool, export_name, image)
+    save_file(export_name, image)
     config._file_cache[export_name] = image
 
 def fixed_primary_tag(tag):
@@ -161,7 +163,7 @@ def save_worker(file_name, shape, sm):
         sm.close()
         sm.unlink()
 
-def save_file(pool, file_name, image):
+def save_file(file_name, image):
     array = np.asarray(image)
     sm = SharedMemory(create=True, size=array.nbytes)
     a = np.ndarray(array.shape, dtype=array.dtype, buffer=sm.buf)
@@ -169,8 +171,6 @@ def save_file(pool, file_name, image):
     pool.submit(save_worker, file_name, array.shape, sm)
 
 def export_all_variants(file_name, config):
-    start = time.perf_counter()
-    config._save_pool = ProcessPoolExecutor(1)
 
     psd = PSDImage.open(file_name)
     file_name = pathlib.Path(file_name).with_suffix('.png')
@@ -207,9 +207,6 @@ def export_all_variants(file_name, config):
             export_variant(psd, file_name, config, enabled, enabled)
         export_combinations(psd, file_name, config, secondary_tags, enabled, enabled)
 
-    config._save_pool.shutdown(wait=True)
-    logging.info(f'export time: {time.perf_counter() - start}')
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
@@ -225,5 +222,9 @@ if __name__ == '__main__':
         help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
     parser.add_argument('file_name', type=str)
     args = parser.parse_args()
+
+    start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
         export_all_variants(file_name, args)
+    pool.shutdown()
+    logging.info(f'export time: {time.perf_counter() - start}')
