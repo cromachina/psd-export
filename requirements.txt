@@ -1,5 +1,5 @@
-numpy
-opencv-python
-psd_tools
-psutil
-pyrsistent
+numpy==1.24.2
+opencv_python==4.7.0.72
+psd_tools==1.9.24
+psutil==5.9.4
+pyrsistent==0.19.3
