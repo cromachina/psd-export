@@ -28,7 +28,7 @@ def find_layer(layer, exact_name):
             return sublayer
 
 def apply_mosaic(image, mask, mosaic_factor=100):
-    original_size = image.shape[:2]
+    original_size = composite.swap(image.shape[:2])
     min_dim = min(original_size) // mosaic_factor
     min_dim = max(4, min_dim)
     scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
