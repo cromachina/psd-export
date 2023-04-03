@@ -222,7 +222,8 @@ if __name__ == '__main__':
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
     parser.add_argument('--mosaic_factor', default=100, type=float,
         help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
-    parser.add_argument('file_name', type=str)
+    parser.add_argument('--file_name', type=str, default='*.psd',
+        help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
 
     start = time.perf_counter()
