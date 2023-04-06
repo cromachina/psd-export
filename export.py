@@ -61,7 +61,6 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     for layer in find_layers(psd, tag_regex):
         layer.visible = False
 
-    has_mosaic_censor = False
     censor_regex_set = set()
 
     # Enable only active tags
@@ -69,7 +68,6 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     for tag in full_enabled_tags:
         if censor_regex.search(f'[{re.escape(tag)}]'):
             censor_regex_set.add(re.compile(f'\[{re.escape(tag)}\]'))
-            has_mosaic_censor = True
         else:
             for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
                 layer.visible = True
@@ -79,26 +77,11 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     for layer in find_layers(psd, censor_regex):
         layer.visible = False
 
-    image = None
-
-    # Since we encountered a mosaic censor tag, the predecessor image might have been created already
-    # and if so, we can use that and skip expensive compositing.
-    if has_mosaic_censor:
-        predecessor_file = compute_file_name(file_name, config, enabled_tags.remove('censor'))
-        image = config._file_cache.get(predecessor_file)
-
-    if image is None:
-        image = composite.composite(psd)
-
-    if has_mosaic_censor:
-        mask = get_censor_composite_mask(psd, show_layers, censor_regex_set)
-        if mask is not None:
-            image = apply_mosaic(image, mask, config.mosaic_factor)
+    image = composite.composite(psd)
 
     export_name = compute_file_name(file_name, config, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
     save_file(export_name, image)
-    config._file_cache[export_name] = image
 
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
@@ -148,6 +131,7 @@ def save_worker(file_name, image_sm):
     logging.basicConfig(level=logging.INFO)
     try:
         image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
+        image = np.multiply(image, 255).astype(np.uint8)
         if is_grayscale(image):
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         else:
@@ -170,7 +154,6 @@ def delete_shared(image_sm):
     image_sm[2].unlink()
 
 def save_file(file_name, image):
-    image = (image * 255).astype(np.uint8)
     pool.submit(save_worker, str(file_name), make_shared(image))
 
 def export_all_variants(file_name, config):
