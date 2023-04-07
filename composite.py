@@ -17,8 +17,28 @@ pool = ThreadPoolExecutor(max_workers=worker_count)
 def peval(func):
     return asyncio.get_running_loop().run_in_executor(pool, func)
 
-# We use float64 precision to mitigate the effect of dividing group layers by their alpha
-dtype = np.float64
+async def barrier_skip(barrier):
+    try:
+        await asyncio.wait_for(asyncio.shield(barrier.wait()), timeout=0.0)
+    except TimeoutError:
+        pass
+
+def mosaic_image(image, mosaic_factor):
+    original_size = util.swap(image.shape[:2])
+    min_dim = min(original_size) // mosaic_factor
+    min_dim = max(4, min_dim)
+    scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
+    mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
+    return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
+
+def mosaic_op(color, alpha, mosaic_factor=100):
+    return mosaic_image(color, mosaic_factor), alpha
+
+def set_custom_operation(layer, func):
+    layer._custom_op = func
+
+def get_custom_operation(layer):
+    return layer._custom_op if hasattr(layer, '_custom_op') else None
 
 def get_overlap_tiles(dst, src, offset):
     ox, oy = offset
@@ -37,10 +57,6 @@ def get_overlap_tiles(dst, src, offset):
 def blit(dst, src, offset):
     dst, src = get_overlap_tiles(dst, src, offset)
     np.copyto(dst, src)
-
-def swap(a):
-    x, y = a
-    return y, x
 
 def get_visibility_all_children(layer:Layer, visited):
     if layer.visible:
@@ -77,12 +93,16 @@ def get_tile_cache(layer:Layer, offset):
         layer._composite_cache[offset] = {}
     return layer._composite_cache[offset]
 
-def create_layer_cache_locks(layer):
-    for sublayer in layer:
+def set_layer_extra_data(layer, tile_count, size):
+    for sublayer in layer.descendants():
         sublayer._composite_cache_lock = asyncio.Lock()
         sublayer._data_cache_lock = asyncio.Lock()
-        if sublayer.is_group():
-            create_layer_cache_locks(sublayer)
+        if get_custom_operation(sublayer) is not None:
+            sublayer._custom_op_barrier = asyncio.Barrier(tile_count)
+            sublayer._custom_op_condition = asyncio.Condition()
+            sublayer._custom_op_finished = False
+            sublayer._custom_op_color = np.zeros(size + (3,))
+            sublayer._custom_op_alpha = np.zeros(size + (1,))
 
 async def get_cached_composite(layer:Layer, offset, visibility_dependency):
     async with layer._composite_cache_lock:
@@ -99,13 +119,13 @@ async def get_cached_layer_data(layer:Layer, channel):
             setattr(layer, attr_name, layer.numpy(channel))
         return getattr(layer, attr_name)
 
-async def get_padded_data(layer, channel, size, offset, data_offset, fill=0):
+async def get_padded_data(layer, channel, size, offset, data_offset, fill=0.0):
     data = await get_cached_layer_data(layer, channel)
     if data is None:
         return None
     shape = size + data.shape[2:]
-    pad = await peval(lambda: util.full(shape, fill, dtype=dtype))
-    await peval(lambda: blit(pad, data, np.array(swap(data_offset)) - np.array(offset)))
+    pad = await peval(lambda: util.full(shape, fill))
+    await peval(lambda: blit(pad, data, np.array(util.swap(data_offset)) - np.array(offset)))
     return pad
 
 def intersection(a, b):
@@ -116,8 +136,8 @@ def is_intersecting(a, b):
     return not (inter[0] >= inter[2] or inter[1] >= inter[3])
 
 def make_bbox(size, offset):
-    offset = swap(offset)
-    size = swap(size)
+    offset = util.swap(offset)
+    size = util.swap(size)
     return offset + (size[0] + offset[0], size[1] + offset[1])
 
 def has_tile_data(layer, size, offset):
@@ -139,7 +159,7 @@ async def get_pixel_layer_data(layer, size, offset):
         return None, None
     alpha_src = await get_padded_data(layer, 'shape', size, offset, layer.offset)
     if alpha_src is None:
-        alpha_src = np.ones(size + (1,), dtype=dtype)
+        alpha_src = np.ones(size + (1,))
     color_src = await get_padded_data(layer, 'color', size, offset, layer.offset)
     return color_src, alpha_src
 
@@ -201,7 +221,11 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
     tile_found = False
 
     for sublayer, clip_layers in layers:
+        custom_op = get_custom_operation(sublayer)
+
         if not sublayer.visible:
+            if custom_op is not None:
+                await barrier_skip(sublayer._custom_op_barrier)
             continue
 
         visibility_dependency = get_visibility_dependency(sublayer, clip_layers)
@@ -209,6 +233,8 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
         if cached_composite is not None:
             color_dst, alpha_dst = cached_composite
             tile_found = True
+            if custom_op is not None:
+                await barrier_skip(sublayer._custom_op_barrier)
             continue
 
         if sublayer.is_group():
@@ -221,9 +247,30 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
 
         # Empty tile, can just ignore.
         if color_src is None:
+            if custom_op is not None:
+                await barrier_skip(sublayer._custom_op_barrier)
             continue
 
         tile_found = True
+
+        # Perform custom filter over the current color_dst
+        if custom_op is not None:
+            if not np.isscalar(color_dst):
+                await peval(lambda: blit(sublayer._custom_op_color, color_dst, offset))
+                await peval(lambda: blit(sublayer._custom_op_alpha, alpha_src, offset))
+            await sublayer._custom_op_barrier.wait()
+            if not sublayer._custom_op_condition.locked():
+                if not sublayer._custom_op_finished:
+                    async with sublayer._custom_op_condition:
+                        sublayer._custom_op_color, sublayer._custom_op_alpha = await peval(lambda: custom_op(sublayer._custom_op_color, sublayer._custom_op_alpha))
+                        sublayer._custom_op_finished = True
+                        sublayer._custom_op_condition.notify_all()
+            else:
+                async with sublayer._custom_op_condition:
+                    await sublayer._custom_op_condition.wait_for(lambda: sublayer._custom_op_finished)
+            neg_offset = -np.array(offset)
+            await peval(lambda: blit(color_src, sublayer._custom_op_color, neg_offset))
+            await peval(lambda: blit(alpha_src, sublayer._custom_op_alpha, neg_offset))
 
         # Opacity is actually FILL when special mode is true!
         opacity, special_mode = get_sai_special_mode_opacity(sublayer)
@@ -233,8 +280,9 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
         if sublayer.blend_mode == BlendMode.PASS_THROUGH:
             mask_src = await get_mask_data(sublayer, size, offset)
             if mask_src is None:
-                mask_src = 1.0
-            await peval(lambda: np.multiply(mask_src, opacity, out=mask_src))
+                mask_src = opacity
+            else:
+                await peval(lambda: np.multiply(mask_src, opacity, out=mask_src))
             if np.isscalar(mask_src) and mask_src == 1.0:
                 color_dst = color_src
                 alpha_dst = alpha_src
@@ -277,15 +325,13 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
         # will yield a slightly different result from those programs.
         mask_src = await get_mask_data(sublayer, size, offset)
         if mask_src is not None:
-            out = None if np.isscalar(color_dst) else color_dst
-            color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=out))
+            color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src))
         else:
             color_dst = color_src
 
         # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
         if mask_src is not None:
             await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
-        out = None if np.isscalar(alpha_dst) else alpha_dst
         alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
 
         await set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
@@ -328,15 +374,16 @@ def composite(psd, tile_size=(256,256)):
     Composite the given PSD and return a numpy array.
     `tile_size` is arranged by (height, width)
     '''
-    create_layer_cache_locks(psd)
     size = psd.height, psd.width
-    color = np.ndarray(size + (3,), dtype=dtype)
-    alpha = np.ndarray(size + (1,), dtype=dtype)
+    color = np.ndarray(size + (3,))
+    alpha = None
 
     tasks = []
 
     for (tile_size, tile_offset) in generate_tiles(size, tile_size):
         tasks.append(composite_tile(psd, tile_size, tile_offset, color, alpha))
+
+    set_layer_extra_data(psd, len(tasks), size)
 
     async def run():
         await asyncio.gather(*tasks)
