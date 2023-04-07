@@ -27,30 +27,6 @@ def find_layer(layer, exact_name):
         if sublayer.name == exact_name:
             return sublayer
 
-def apply_mosaic(image, mask, mosaic_factor=100):
-    original_size = composite.swap(image.shape[:2])
-    min_dim = min(original_size) // mosaic_factor
-    min_dim = max(4, min_dim)
-    scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
-    mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
-    mosaic_image = cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
-    return composite.parallel_lerp(image, mosaic_image, mask)
-
-def get_censor_composite_mask(psd, layers, censor_regex_set):
-    if not layers:
-        layers = psd
-    censor_layers = set()
-    for layer in layers:
-        if layer.is_group():
-            for regex in censor_regex_set:
-                for censor_layer in find_layers(layer, regex):
-                    censor_layers.add(censor_layer)
-        elif censor_regex.search(layer.name):
-            censor_layers.add(layer)
-    if len(censor_layers) > 0:
-        return composite.union_mask(psd, censor_layers)
-    return None
-
 def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     if config.dryrun:
         export_name = compute_file_name(file_name, config, enabled_tags)
@@ -61,44 +37,16 @@ def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
     for layer in find_layers(psd, tag_regex):
         layer.visible = False
 
-    has_mosaic_censor = False
-    censor_regex_set = set()
-
     # Enable only active tags
-    show_layers = []
     for tag in full_enabled_tags:
-        if censor_regex.search(f'[{re.escape(tag)}]'):
-            censor_regex_set.add(re.compile(f'\[{re.escape(tag)}\]'))
-            has_mosaic_censor = True
-        else:
-            for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
-                layer.visible = True
-                show_layers.append(layer)
+        for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
+            layer.visible = True
 
-    # Censor tags may also share a primary tag; disable them again.
-    for layer in find_layers(psd, censor_regex):
-        layer.visible = False
-
-    image = None
-
-    # Since we encountered a mosaic censor tag, the predecessor image might have been created already
-    # and if so, we can use that and skip expensive compositing.
-    if has_mosaic_censor:
-        predecessor_file = compute_file_name(file_name, config, enabled_tags.remove('censor'))
-        image = config._file_cache.get(predecessor_file)
-
-    if image is None:
-        image = composite.composite(psd)
-
-    if has_mosaic_censor:
-        mask = get_censor_composite_mask(psd, show_layers, censor_regex_set)
-        if mask is not None:
-            image = apply_mosaic(image, mask, config.mosaic_factor)
+    image = composite.composite(psd)
 
     export_name = compute_file_name(file_name, config, enabled_tags)
     export_name.parent.mkdir(parents=True, exist_ok=True)
     save_file(export_name, image)
-    config._file_cache[export_name] = image
 
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
@@ -129,14 +77,8 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
             next_enabled = enabled_tags.append(tag)
             next_full_enabled = full_enabled_tags.append(f'{tag}@{xor_group}')
             next_secondary = secondary_tags.remove(xor_group)
-
-            if tag != 'censor':
-                export_variant(psd, file_name, config, next_enabled, next_full_enabled)
-
+            export_variant(psd, file_name, config, next_enabled, next_full_enabled)
             export_combinations(psd, file_name, config, next_secondary, next_enabled, next_full_enabled)
-
-            if tag == 'censor':
-                export_variant(psd, file_name, config, next_enabled, next_full_enabled)
 
         secondary_tags = secondary_tags.remove(xor_group)
 
@@ -148,6 +90,7 @@ def save_worker(file_name, image_sm):
     logging.basicConfig(level=logging.INFO)
     try:
         image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
+        image = np.multiply(image, 255).astype(np.uint8)
         if is_grayscale(image):
             image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         else:
@@ -170,11 +113,13 @@ def delete_shared(image_sm):
     image_sm[2].unlink()
 
 def save_file(file_name, image):
-    image = (image * 255).astype(np.uint8)
     pool.submit(save_worker, str(file_name), make_shared(image))
 
 def export_all_variants(file_name, config):
     psd = PSDImage.open(file_name)
+    for layer in find_layers(psd, censor_regex):
+        composite.set_custom_operation(layer, lambda color, alpha: composite.mosaic_op(color, alpha, config.mosaic_factor))
+
     file_name = pathlib.Path(file_name).with_suffix('.png')
     tags = pset()
 
@@ -220,9 +165,9 @@ if __name__ == '__main__':
         help='Show what files would have been exported, but do not actually export anything.')
     parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
-    parser.add_argument('--mosaic_factor', default=100, type=float,
+    parser.add_argument('--mosaic-factor', default=100, type=float,
         help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
-    parser.add_argument('--file_name', type=str, default='*.psd',
+    parser.add_argument('--file-name', type=str, default='*.psd',
         help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
 
