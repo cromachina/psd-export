@@ -4,6 +4,10 @@
 - This tool is primarily meant to be compatible with PSDs exported from `PaintTool SAIv2` and `Clip Studio Paint`.
 
 ---
+### Why
+For my art workflow, I typically make a bunch variation layers and also need to apply mosaics to all of them. As a manual process, exporting every variant can take several minutes, with lots of clicking everywhere to turn layers on and off (potentially missing layers by accident) and then adding mosaics can be another 10 or 20 minutes of extra work. If I find I need to change something in my pictures and export again, I have to repeat this whole ordeal. This script puts this export process on the order of seconds, saving me a lot of time and pain.
+
+---
 ### Installation
 - Install python: https://www.python.org/downloads/
 - Run `pip install -r requirements.txt` to install dependencies.
@@ -32,13 +36,15 @@
   - Example: `[jp@text]`, `[en@text]`, these two layers will not be turned on together because they are in the exclusion group `text`.
 
 #### Automatic Censors
-- Any tag with the name `censor` will be turned into a mosaic filter ON TOP OF all other layers.
+- Any tag with the name `censor` will be turned into a mosaic filter within the layer group it resides in.
+  - If you want the mosiac to apply to layers outside of the group it is in, then the group blend mode should be set to `pass-through`. If the mosaic blends over transparent pixels, then some of the mosaic pixels may blend with the black transparency if the group blend mode is not `pass-through`.
   - By default, the mosaic is Pixiv compliant, that is: 1/100th the smallest dimension, or 4 pixels, whichever is larger
 - Typically you will want this to be a secondary tag, for example: `[censor@]`
 
 ---
 ### Running
-- Run `export.py some-picture.psd` to run the export process.
+- Run `export.py --file-name some-picture.psd` to run the export process.
+- You can omit the file name and it will default to `*.psd` and try to export all PSD files in the current directory.
 - Run `export.py --h` to see a list of arguments and their behaviors.
 - Command argument names can be partially entered, for example `--subfolders` can be written `--sub` or `--s`, if it's unambiguous.
 
@@ -105,13 +111,6 @@ After exporting:
   - Probably some other things I'm unaware of.
 
 ---
-### Fun notes about performance
-With an AMD Ryzen 9 3900X 12-Core processor, I was able to export 18 4000x4000 images from a PSD (with 9 mosiac censor versions) in 26 seconds. Each export is about 17 layers of data (including groups). On average, the time needed to composite a 4000x4000 image after opening the PSD is 5 seconds, but after most of the shared layers are loaded, each successive composite is about 3 seconds, and censor versions are 1 second if the prior image was already generated. Each single composite is computed in parallel with numpy. File saving to PNG with PIL is a bit slow at 1 second per image, so that can be offloaded into another process and parallelized with compositing. `psd-tools`, which is used to load parts of the PSD, has a compositor that will run one export in about 45 to 60 seconds. Even with 12 cores, you will still be waiting at least 120 seconds for this batch of files. Hyperthreads do not help, because most of the task is CPU bound.
-
----
 ### TODO:
 - Fix blend modes that don't quite work properly. This is low priority because I hardly use these modes myself or merge the results when painting.
-- Mosaic composited under other layers:
-  - Needs to be hooked into the compositor somehow, maybe a transformer function hook so anything can be used (like gaussian blur instead).
-  - Kernel-like functions will need composite tile data padded to the kernel size. Tiles on the image boundary can be padded with a clamp
 - Binary package export
