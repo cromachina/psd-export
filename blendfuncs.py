@@ -52,14 +52,9 @@ def multiply(Cd, Cs, Ad, As):
 def screen(Cd, Cs, Ad, As):
     return Cs + Cd - Cs * Cd
 
+# Still messed up because hard light is messed up
 def overlay(Cd, Cs, Ad, As):
-    # Really similar to hard light, 2 * Cd is the index.
-    Cd2 = 2 * Cd
-    Cs2 = 2 * Cs
-    index = Cd2 > Ad
-    B = multiply(Cd, Cs2, Ad, As)
-    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
-    return B
+    return hard_light(Cs, Cd, As, Ad)
 
 # SAI Shade
 def linear_burn(Cd, Cs, Ad, As):
