@@ -127,9 +127,6 @@ After exporting:
   - Hard Light
   - Pin Light
 
-- Blend modes that have a slightly different result even at full opacity:
-  - Soft Light
-
 - Blend modes that seem to be completely broken:
   - Hue
   - Saturation
