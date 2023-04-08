@@ -71,17 +71,21 @@ def linear_burn(Cd, Cs, Ad, As):
 # SAI Shine
 def linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
-    H = (Cdd + Cs)
+    H = Cdd + Cs
     util.clip(H, H)
     return util.lerp(Cs, H, Ad, out=H)
 
 # SAI Shade/Shine
 def linear_light(Cd, Cs, Ad, As):
+    Cdd = util.clip_divide(Cd, Ad)
     Cs2 = 2 * Cs
     index = Cs2 > As
-    B = linear_burn(Cd, Cs2, Ad, As)
-    B[index] = linear_dodge(Cd, Cs2 - As, Ad, As)[index]
-    return B
+    LB = Cdd + Cs2 - As
+    util.clip(LB, LB)
+    LD = Cdd + Cs2 - As
+    util.clip(LD, LD)
+    LB[index] = LD[index]
+    return util.lerp(Cs, LB, Ad, out=LB)
 
 # TS Color Burn, SAI's is unknown, nonlinear
 def ts_color_burn(Cd, Cs, Ad, As):
