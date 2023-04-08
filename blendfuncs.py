@@ -79,12 +79,8 @@ def linear_dodge(Cd, Cs, Ad, As):
 def linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Cs2 = 2 * Cs
-    index = Cs2 > As
     LB = Cdd + Cs2 - As
     util.clip(LB, LB)
-    LD = Cdd + Cs2 - As
-    util.clip(LD, LD)
-    LB[index] = LD[index]
     return util.lerp(Cs, LB, Ad, out=LB)
 
 # TS Color Burn, SAI's is unknown, nonlinear
