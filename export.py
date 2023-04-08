@@ -4,54 +4,54 @@ import logging
 import pathlib
 import re
 import time
-from concurrent.futures import ProcessPoolExecutor
-from multiprocessing.shared_memory import SharedMemory
+from collections import namedtuple
 
-import cv2
-import numpy as np
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
 
 import composite
+import util
 
-pool = ProcessPoolExecutor(1)
+Tag = namedtuple('Tag', ["ignore", "name", "xor_group", "args"])
 
-tag_regex = re.compile('\[(.+?)\]')
-censor_regex = re.compile('\[censor\]|\[censor@.*?\]')
+tag_regex = re.compile('\[(.*?)\]')
 
-def find_layers(layer, regex):
-    return list(filter(lambda sublayer: regex.search(sublayer.name), layer.descendants()))
+def parse_tag(tag:str):
+    args = tag.split()
+    if len(args) == 0:
+        return Tag(False, '', '', [])
+    else:
+        ignore = False
+        arg0 = args[0]
+        if arg0.startswith('#'):
+            ignore = True
+            arg0 = arg0.strip('#')
+        name = arg0.split('@', 1)
+        xor = None
+        if len(name) == 2:
+            name, xor = name
+        else:
+            name = name[0]
+        return Tag(
+            ignore,
+            name,
+            xor,
+            args[1:]
+        )
 
-def find_layer(layer, exact_name):
-    for sublayer in layer.descendants():
-        if sublayer.name == exact_name:
-            return sublayer
+filter_names = {
+    'censor': composite.mosaic_op,
+    'blur': composite.blur_op,
+}
 
-def export_variant(psd, file_name, config, enabled_tags, full_enabled_tags):
-    if config.dryrun:
-        export_name = compute_file_name(file_name, config, enabled_tags)
-        logging.info(f'would export: {export_name}')
-        return
-
-    # Disable all tags
-    for layer in find_layers(psd, tag_regex):
-        layer.visible = False
-
-    # Enable only active tags
-    for tag in full_enabled_tags:
-        for layer in find_layers(psd, re.compile(f'\[{re.escape(tag)}\]')):
-            layer.visible = True
-
-    image = composite.composite(psd)
-
-    export_name = compute_file_name(file_name, config, enabled_tags)
-    export_name.parent.mkdir(parents=True, exist_ok=True)
-    save_file(export_name, image)
+def parse_tags(input):
+    return [parse_tag(tag) for tag in tag_regex.findall(input)]
 
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
 
 def compute_file_name(base_file_name, config, enabled_tags):
+    enabled_tags = [tag[0] for tag in enabled_tags]
     if config.primary_sub:
         primary_tag = ''
         group_name = '-'.join(enabled_tags)
@@ -65,7 +65,38 @@ def compute_file_name(base_file_name, config, enabled_tags):
         next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}-{group_name}')
     return next_file_name
 
-def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, full_enabled_tags):
+def export_variant(psd, file_name, config, enabled_tags):
+    export_name = compute_file_name(file_name, config, enabled_tags)
+
+    if config.dryrun:
+        logging.info(f'would export: {export_name}')
+        return
+
+    # Configure tagged layers
+    for layer in psd.descendants():
+        custom_ops = []
+        def add_op(tag):
+            custom_op = filter_names.get(tag.name)
+            if custom_op:
+                custom_ops.append(lambda c, a: custom_op(c, a, *tag.args))
+
+        for tag in layer._tags:
+            if not tag.ignore:
+                layer.visible = False
+        for tag in layer._tags:
+            if tag.ignore:
+                add_op(tag)
+            elif (tag.name, tag.xor_group) in enabled_tags:
+                layer.visible = True
+                add_op(tag)
+        composite.set_custom_operation(layer, composite.chain_ops(custom_ops))
+
+    image = composite.composite(psd)
+
+    export_name.parent.mkdir(parents=True, exist_ok=True)
+    util.save_file(export_name, image)
+
+def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
     if not secondary_tags:
         return
 
@@ -73,74 +104,33 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, fu
     items.sort()
 
     for xor_group, tags in items:
-        for tag in tags:
-            next_enabled = enabled_tags.append(tag)
-            next_full_enabled = full_enabled_tags.append(f'{tag}@{xor_group}')
-            next_secondary = secondary_tags.remove(xor_group)
-            export_variant(psd, file_name, config, next_enabled, next_full_enabled)
-            export_combinations(psd, file_name, config, next_secondary, next_enabled, next_full_enabled)
-
         secondary_tags = secondary_tags.remove(xor_group)
-
-def is_grayscale(image):
-    r, g, b = image[:,:,0], image[:,:,1], image[:,:,2]
-    return (r == g).all() and (g == b).all()
-
-def save_worker(file_name, image_sm):
-    logging.basicConfig(level=logging.INFO)
-    try:
-        image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
-        image = np.multiply(image, 255).astype(np.uint8)
-        if is_grayscale(image):
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        else:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(file_name, image)
-        logging.info(f'exported: {file_name}')
-    except Exception as e:
-        logging.exception(e)
-    finally:
-        delete_shared(image_sm)
-
-def make_shared(image):
-    sm = SharedMemory(create=True, size=image.nbytes)
-    a = np.ndarray(image.shape, dtype=image.dtype, buffer=sm.buf)
-    np.copyto(a, image)
-    return (image.shape, image.dtype, sm)
-
-def delete_shared(image_sm):
-    image_sm[2].close()
-    image_sm[2].unlink()
-
-def save_file(file_name, image):
-    pool.submit(save_worker, str(file_name), make_shared(image))
+        for tag in tags:
+            next_enabled = enabled_tags.append((tag, xor_group))
+            export_variant(psd, file_name, config, next_enabled)
+            export_combinations(psd, file_name, config, secondary_tags, next_enabled)
 
 def export_all_variants(file_name, config):
     psd = PSDImage.open(file_name)
-    for layer in find_layers(psd, censor_regex):
-        composite.set_custom_operation(layer, lambda color, alpha: composite.mosaic_op(color, alpha, config.mosaic_factor))
 
     file_name = pathlib.Path(file_name).with_suffix('.png')
-    tags = pset()
-
-    tagged_layers = find_layers(psd, tag_regex)
-    for layer in tagged_layers:
-        for tag in tag_regex.findall(layer.name):
-            tags = tags.add(tag)
 
     primary_tags = pset()
     secondary_tags = pmap()
-    for tag in tags:
-        if '@' in tag:
-            sub_tag, xor_group = tag.split('@')
-            if sub_tag == '':
-                continue
-            group = secondary_tags.get(xor_group, pset()).add(sub_tag)
-            secondary_tags = secondary_tags.set(xor_group, group)
-        else:
-            primary_tags = primary_tags.add(tag)
 
-    if len(primary_tags) == 0:
+    for layer in psd.descendants():
+        tags = parse_tags(layer.name)
+        layer._tags = tags
+        for tag in tags:
+            if tag.ignore:
+                continue
+            if tag.xor_group is None:
+                primary_tags = primary_tags.add(tag.name)
+            else:
+                group = secondary_tags.get(tag.xor_group, pset()).add(tag.name)
+                secondary_tags = secondary_tags.set(tag.xor_group, group)
+
+    if not primary_tags:
         primary_tags = primary_tags.add('')
 
     primary_tags = list(primary_tags)
@@ -148,11 +138,10 @@ def export_all_variants(file_name, config):
     primary_tags = pvector(primary_tags)
 
     for primary_tag in primary_tags:
-        config._file_cache = {}
-        enabled = pvector([primary_tag])
+        enabled = pvector([(primary_tag, None)])
         if not config.only_secondary_tags:
-            export_variant(psd, file_name, config, enabled, enabled)
-        export_combinations(psd, file_name, config, secondary_tags, enabled, enabled)
+            export_variant(psd, file_name, config, enabled)
+        export_combinations(psd, file_name, config, secondary_tags, enabled)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
@@ -174,5 +163,5 @@ if __name__ == '__main__':
     start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
         export_all_variants(file_name, args)
-    pool.shutdown()
+    util.file_writer_wait_all()
     logging.info(f'export time: {time.perf_counter() - start}')

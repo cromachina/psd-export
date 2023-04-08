@@ -31,8 +31,24 @@ def mosaic_image(image, mosaic_factor):
     mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
     return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
 
-def mosaic_op(color, alpha, mosaic_factor=100):
+def mosaic_op(color, alpha, mosaic_factor=100, *_):
+    mosaic_factor = int(mosaic_factor)
     return mosaic_image(color, mosaic_factor), alpha
+
+def blur_op(color, alpha, size=50, *_):
+    size = int(size)
+    if size % 2 == 0:
+        size += 1
+    return cv2.GaussianBlur(color, (size, size), size), alpha
+
+def chain_ops(ops):
+    if not ops:
+        return None
+    def c(color, alpha):
+        for op in ops:
+            color, alpha = op(color, alpha)
+        return color, alpha
+    return c
 
 def set_custom_operation(layer, func):
     layer._custom_op = func
