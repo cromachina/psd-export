@@ -15,16 +15,23 @@ def swap(a):
 def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
 
+def clip(val, out=None):
+    return np.clip(val, 0, 1, out=out)
+
 def safe_divide(a, b, out=None):
     with np.errstate(divide='ignore', invalid='ignore'):
         eps = np.finfo(np.float64).eps
         return np.divide(a, b + eps, out=out)
 
-def lerp(a, b, t):
-    return a + t * (b - a)
+def clip_divide(a, b, out=None):
+    out = safe_divide(a, b, out=out)
+    return clip(out, out=out)
 
-def clip(val, out=None):
-    return np.clip(val, 0, 1, out=out)
+def lerp(a, b, t, out=None):
+    out = np.subtract(b, a, out=out)
+    np.multiply(t, out, out=out)
+    return np.add(a, out, out=out)
+    #return a + t * (b - a)
 
 def full(shape, fill, dtype=None):
     if fill == 0:

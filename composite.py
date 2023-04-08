@@ -314,8 +314,7 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
 
         if sublayer.is_group():
             # Un-multiply group composites so that we can multiply group opacity correctly
-            await peval(lambda: util.safe_divide(color_src, alpha_src, out=color_src))
-            await peval(lambda: util.clip(color_src, out=color_src))
+            await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
 
         if clip_layers:
             # Composite the clip layers now. This basically overwrites just the color by blending onto it without

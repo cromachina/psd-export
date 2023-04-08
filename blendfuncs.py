@@ -28,8 +28,8 @@ import util
 # This is a hit to performance too because of the two divides.
 def to_premul(non_premul_func):
     def fn(Cd, Cs, Ad, As):
-        Cdp = util.clip(util.safe_divide(Cd, Ad))
-        Csp = util.clip(util.safe_divide(Cs, As))
+        Cdp = util.clip_divide(Cd, Ad)
+        Csp = util.clip_divide(Cs, As)
         B = non_premul_func(Cdp, Csp)
         Asrc = As * (1 - Ad)
         Adst = Ad * (1 - As)
@@ -85,7 +85,7 @@ def ts_color_burn(Cd, Cs, Ad, As):
     c = comp(Cd, As)
     AsAd = As * Ad
     B = np.zeros_like(Cs)
-    B[index3] = (AsAd * (1 - np.minimum(1, util.safe_divide(As * (Ad - Cd), Ad * Cs))) + comp(Cs, Ad) + c)[index3]
+    B[index3] = (AsAd * (1 - util.clip_divide(As * (Ad - Cd), Ad * Cs)) + comp(Cs, Ad) + c)[index3]
     B[index] = c[index]
     B[index2] = (AsAd + c)[index2]
     return B
@@ -98,7 +98,7 @@ def ts_color_dodge(Cd, Cs, Ad, As):
     c1 = comp(Cs, Ad)
     c2 = comp(Cd, As) + c1
     B = np.zeros_like(Cs)
-    B[index3] = (As * Ad * np.minimum(1, util.safe_divide(Cd * As, Ad * (As - Cs))) + c2)[index3]
+    B[index3] = (As * Ad * util.clip_divide(Cd * As, Ad * (As - Cs)) + c2)[index3]
     B[index] = (As * Ad + c2)[index]
     B[index2] = c1[index2]
     return B
@@ -150,22 +150,11 @@ def pin_light(Cd, Cs, Ad, As):
     B[index] = lighten(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-def mult_inverse_blend(Cd, Cs, Ad, As):
-    # Asd = safe_divide(1, 1 - As)
-    # Add = safe_divide(1, 1 - Ad)
-    # return 1 - ((1 - Cd) * Asd + Cs * (1 - Asd))
-    return util.safe_divide(Cd - As + As * Cs, 1 - As)
-
-# Hard Mix
-# This almost works except the blend between multiplicative inverse and
-# the destination with transparent alpha is a bit off. It seems like this
-# part of the blending is also non-linear, but it's hard to figure out.
 def hard_mix(Cd, Cs, Ad, As):
-    Cdd = util.clip(util.safe_divide(Cd, Ad))
-    Csd = util.clip(util.safe_divide(Cs, As))
-    H = util.clip(mult_inverse_blend(Cdd, Csd, Ad, As))
-    R = util.lerp(Csd, H, Ad) * As
-    return normal(Cd, R, Ad, As)
+    Cdd = util.clip_divide(Cd, Ad)
+    Csd = util.clip_divide(Cs, As)
+    H = util.clip_divide(Cdd - As + As * Csd, 1 - As)
+    return util.lerp(Cs, H, Ad)
 
 def ts_hard_mix(Cd, Cs, Ad, As):
     index = Cd * As + Cs * Ad >= As
