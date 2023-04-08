@@ -31,7 +31,11 @@ def mosaic_image(image, mosaic_factor):
     mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
     return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
 
-def mosaic_op(color, alpha, mosaic_factor=100, *_):
+mosaic_factor_default = 100
+
+def mosaic_op(color, alpha, mosaic_factor=None, *_):
+    if mosaic_factor is None:
+        mosaic_factor = mosaic_factor_default
     mosaic_factor = int(mosaic_factor)
     return mosaic_image(color, mosaic_factor), alpha
 

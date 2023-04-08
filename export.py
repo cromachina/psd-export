@@ -160,6 +160,7 @@ if __name__ == '__main__':
         help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
 
+    composite.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
         export_all_variants(file_name, args)
