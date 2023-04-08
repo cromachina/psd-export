@@ -31,7 +31,6 @@ def lerp(a, b, t, out=None):
     out = np.subtract(b, a, out=out)
     np.multiply(t, out, out=out)
     return np.add(a, out, out=out)
-    #return a + t * (b - a)
 
 def full(shape, fill, dtype=None):
     if fill == 0:
