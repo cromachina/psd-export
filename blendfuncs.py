@@ -68,10 +68,9 @@ def linear_burn(Cd, Cs, Ad, As):
 # SAI Shine
 def linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
-    Csd = util.clip_divide(Cs, As)
-    H = Cdd + Csd
+    H = (Cdd + Cs)
     util.clip(H, H)
-    return util.lerp(Cs, H, Ad)
+    return util.lerp(Cs, H, Ad, out=H)
 
 # SAI Shade/Shine
 def linear_light(Cd, Cs, Ad, As):
