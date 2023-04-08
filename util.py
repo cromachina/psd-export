@@ -18,10 +18,13 @@ def clamp(min_val, max_val, val):
 def clip(val, out=None):
     return np.clip(val, 0, 1, out=out)
 
+def clip_in(val):
+    return clip(val, val)
+
 def safe_divide(a, b, out=None):
     with np.errstate(divide='ignore', invalid='ignore'):
-        eps = np.finfo(np.float64).eps
-        return np.divide(a, b + eps, out=out)
+        out = np.divide(a, b, out=out)
+        return np.nan_to_num(out, False, 0.0)
 
 def clip_divide(a, b, out=None):
     out = safe_divide(a, b, out=out)
