@@ -6,42 +6,25 @@ import util
 
 # https://dev.w3.org/SVG/modules/compositing/master/
 # http://ssp.impulsetrain.com/porterduff.html
-# How to convert from non-premultiplied blend functions to premultiplied ones:
-# Cd = Color Destination
-# Cs = Color Source
-# Ad = Alpha Destination
-# As = Alpha Source
-# - The form (C * (1 - A)) we will call 'comp(C, A)', for complementary alpha.
-# - Any addition or subtraction of a constant N from the non-premultiplied forumla becomes
-#   addition or subtraction of (N * As). So 1 -> As and 0 -> 0
-# - Any constant multiplication or exponential is unchanged.
-# - When a function is applied over a combination of Cd and Cs,
-#   the comps are added to the result of the function:
-# f(Cd) -> f(Cd * As) + comp(Cd, As)
-# f(Cs) -> f(Cs * Ad) + comp(Cs, Ad)
-# f(Cd, Cs) -> f(Cd * As, Cs * Ad) + comp(Cd, As) + comp(Cs, Ad)
-# - The result can be optimized by expanding and simplifying.
-# - Color burn is the odd one out. Its conversion is a bit confusing.
-
-# Turn a non-premultiplied blend func into a premultiplied one.
-# The result may sometimes look a little bit different from SAI.
-# This is a hit to performance too because of the two divides.
-def to_premul(non_premul_func):
-    def fn(Cd, Cs, Ad, As):
-        Cdp = util.clip_divide(Cd, Ad)
-        Csp = util.clip_divide(Cs, As)
-        B = non_premul_func(Cdp, Csp)
-        Asrc = As * (1 - Ad)
-        Adst = Ad * (1 - As)
-        Aboth = As * Ad
-        return Csp * Asrc + Cdp * Adst + Aboth * B
-    return fn
+# https://photoblogstop.com/photoshop/photoshop-blend-modes-explained
 
 def comp(C, A):
     return C * (1 - A)
 
 def comp2(Cd, Cs, Ad, As):
     return comp(Cd, As) + comp(Cs, Ad)
+
+def premul(Cd, Cs, Ad, As, non_premul_func):
+    Cdp = util.clip_divide(Cd, Ad)
+    Csp = util.clip_divide(Cs, As)
+    B = non_premul_func(Cdp, Csp)
+    Asrc = comp(As, Ad)
+    Adst = comp(Ad, As)
+    Aboth = As * Ad
+    return Csp * Asrc + Cdp * Adst + Aboth * B
+
+def to_premul(non_premul_func):
+    return lambda Cd, Cs, Ad, As: premul(Cd, Cs, Ad, As, non_premul_func)
 
 def normal(Cd, Cs, Ad, As):
     return Cs + comp(Cd, As)
@@ -63,12 +46,24 @@ def linear_burn(Cd, Cs, Ad, As):
     util.clip(H, H)
     return util.lerp(Cs, H, Ad, out=H)
 
+def linear_burn_non_premul(Cd, Cs):
+    return util.clip(Cd + Cs - 1)
+
+def ts_linear_burn(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, linear_burn_non_premul)
+
 # SAI Shine
 def linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs
     util.clip(H, H)
     return util.lerp(Cs, H, Ad, out=H)
+
+def linear_dodge_non_premul(Cd, Cs):
+    return util.clip(Cd + Cs)
+
+def ts_linear_dodge(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, linear_dodge_non_premul)
 
 # SAI Shade/Shine
 def linear_light(Cd, Cs, Ad, As):
@@ -78,45 +73,65 @@ def linear_light(Cd, Cs, Ad, As):
     util.clip(LB, LB)
     return util.lerp(Cs, LB, Ad, out=LB)
 
-# TS Color Burn, SAI's is unknown, nonlinear
+def linear_light_non_premul(Cd, Cs):
+    Cs2 = Cs * 2
+    index = Cs > 0.5
+    B = linear_burn_non_premul(Cd, Cs2)
+    D = linear_dodge_non_premul(Cd, Cs2 - 1)
+    B[index] = D[index]
+    return B
+
+def ts_linear_light(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, linear_light_non_premul)
+
+def color_burn_non_premul(Cd, Cs):
+    return 1 - util.clip_divide(1 - Cd, Cs)
+
 def ts_color_burn(Cd, Cs, Ad, As):
-    index = Cs == 0
-    index2 = index & np.isclose(Cd, Ad)
-    index3 = Cs > 0
-    c = comp(Cd, As)
+    return premul(Cd, Cs, Ad, As, color_burn_non_premul)
+
+# FIXME SAI Color Burn
+def color_burn(Cd, Cs, Ad, As):
+    Cdd = util.clip_divide(Cd, As)
+    Csd = util.clip_divide(Cs, As)
     AsAd = As * Ad
-    B = np.zeros_like(Cs)
-    B[index3] = (AsAd * (1 - util.clip_divide(As * (Ad - Cd), Ad * Cs)) + comp(Cs, Ad) + c)[index3]
-    B[index] = c[index]
-    B[index2] = (AsAd + c)[index2]
-    return B
+    B = AsAd - util.clip_divide(AsAd - Cd, Cs)
+    return util.lerp(Cs, B, Ad, out=B)
 
-# TS Color Dodge, SAI's is unknown, nonlinear
+def color_dodge_non_premul(Cd, Cs):
+    return util.clip_divide(Cd, 1 - Cs)
+
 def ts_color_dodge(Cd, Cs, Ad, As):
-    index = np.isclose(Cs, As)
-    index2 = index & (Cd == 0)
-    index3 = Cs < As
-    c1 = comp(Cs, Ad)
-    c2 = comp(Cd, As) + c1
-    B = np.zeros_like(Cs)
-    B[index3] = (As * Ad * util.clip_divide(Cd * As, Ad * (As - Cs)) + c2)[index3]
-    B[index] = (As * Ad + c2)[index]
-    B[index2] = c1[index2]
+    return premul(Cd, Cs, Ad, As, color_dodge_non_premul)
+
+# FIXME SAI Color Dodge
+def color_dodge(Cd, Cs, Ad, As):
+    Cdd = util.safe_divide(Cd, Ad)
+    Csd = util.safe_divide(Cs, As)
+    H = util.safe_divide(Cdd, (1 - Csd))
+    return util.lerp(Cs, H, Ad)
+
+def vivid_light_non_premul(Cd, Cs):
+    Cs2 = Cs * 2
+    index = Cs > 0.5
+    B = color_burn_non_premul(Cd, Cs2)
+    D = color_dodge_non_premul(Cd, Cs2 - 1)
+    B[index] = D[index]
     return B
 
-# TS Vivid Light, SAI's is unknown, nonlinear
-# Technically correct Vivid Light? Seems like everyone else's
-# vivid light is messed up at 100% opacity/fill with clipped/buggy pixels.
-# Maybe this is related to hard light?
 def ts_vivid_light(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, vivid_light_non_premul)
+
+# FIXME
+def vivid_light(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 > As
     B = ts_color_burn(Cd, Cs2, Ad, As)
     B[index] = ts_color_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-# Slightly different from SAI
-soft_light = to_premul(blend.soft_light)
+def soft_light(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, blend.soft_light)
 
 # FIXME broken soft light. This function is so confusing.
 # SAI: Seemingly linear.
@@ -137,13 +152,18 @@ def soft_light_broken(Cd, Cs, Ad, As):
     B[index] = (Cd * (As + x * (1 - m)) + comp2(Cd, Cs, Ad, As))[index]
     return B
 
+# The multiply part is still slightly off when Ad < 1
 def hard_light(Cd, Cs, Ad, As):
-    Cs2 = 2 * Cs
+    Cdd = util.clip_divide(Cd, Ad)
+    Cs2 = Cs * 2
     index = Cs2 > As
-    B = multiply(Cd, Cs2, Ad, As)
-    B[index] = screen(Cd, Cs2 - As, Ad, As)[index]
-    return B
+    M = Cdd * Cs2 + comp2(Cdd, Cs, Ad, As)
+    #M = multiply(Cdd, Cs2, Ad, As)
+    S = screen(Cdd, Cs2 - As, Ad, As)
+    M[index] = S[index]
+    return util.lerp(Cs, M, Ad, out=M)
 
+#FIXME
 def pin_light(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 > As
@@ -157,12 +177,13 @@ def hard_mix(Cd, Cs, Ad, As):
     H = util.clip_divide(Cdd - As + As * Csd, 1 - As)
     return util.lerp(Cs, H, Ad, out=H)
 
+def hard_mix_non_premul(Cd, Cs):
+    B = np.zeros_like(Cd)
+    B[(Cd + Cs) > 1] = 1
+    return B
+
 def ts_hard_mix(Cd, Cs, Ad, As):
-    index = Cd * As + Cs * Ad >= As
-    H = np.zeros_like(Cs)
-    H[index] = 1
-    H *= As
-    return H + comp2(Cd, Cs, Ad, As)
+    return premul(Cd, Cs, Ad, As, hard_mix_non_premul)
 
 def darken(Cd, Cs, Ad, As):
     return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
@@ -177,6 +198,10 @@ lighter_color = to_premul(blend.lighter_color)
 # TS Difference; SAI: seemingly linear
 def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
+
+# FIXME
+def difference(Cd, Cs, Ad, As):
+    return ts_difference(Cd, Cs, Ad, As)
 
 def exclusion(Cd, Cs, Ad, As):
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
@@ -202,9 +227,9 @@ blend_modes = {
     BlendMode.MULTIPLY: multiply,
     BlendMode.SCREEN: screen,
     BlendMode.OVERLAY: overlay,
-    BlendMode.LINEAR_BURN: to_premul(blend.linear_burn),
-    BlendMode.LINEAR_DODGE: to_premul(blend.linear_dodge),
-    BlendMode.LINEAR_LIGHT: to_premul(blend.linear_light),
+    BlendMode.LINEAR_BURN: ts_linear_burn,
+    BlendMode.LINEAR_DODGE: ts_linear_dodge,
+    BlendMode.LINEAR_LIGHT: ts_linear_light,
     BlendMode.COLOR_BURN: ts_color_burn,
     BlendMode.COLOR_DODGE: ts_color_dodge,
     BlendMode.VIVID_LIGHT: ts_vivid_light,
@@ -230,11 +255,11 @@ special_blend_modes = {
     BlendMode.LINEAR_BURN: linear_burn,
     BlendMode.LINEAR_DODGE: linear_dodge,
     BlendMode.LINEAR_LIGHT: linear_light,
-    BlendMode.COLOR_BURN: ts_color_burn,
-    BlendMode.COLOR_DODGE: ts_color_dodge,
-    BlendMode.VIVID_LIGHT: ts_vivid_light,
+    BlendMode.COLOR_BURN: color_burn,
+    BlendMode.COLOR_DODGE: color_dodge,
+    BlendMode.VIVID_LIGHT: vivid_light,
     BlendMode.HARD_MIX: hard_mix,
-    BlendMode.DIFFERENCE: ts_difference,
+    BlendMode.DIFFERENCE: difference,
 }
 
 def normal_alpha(Ad, As):

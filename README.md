@@ -116,21 +116,45 @@ After exporting:
 <img src="https://user-images.githubusercontent.com/82557197/194396262-0c2c3879-fa65-40a3-bc87-f0ddd779dd26.png" width="500">
 
 ---
-### Issues:
-- Some blend modes give a different result from SAI when the source layer has transparency, otherwise the result is the same. Typically this is because blend mode has some non-linear formula that I have trouble reverse engineering. These blend mode behaviors somewhat correspond to the 'Fill' parameter in Photoshop. Currently the behavior of these functions is defaulted to the Transparency Shapes [TS] blend modes in SAI, if there is a matching one.
-  - Color Burn (Burn)
-  - Color Dodge (Dodge)
-  - Vivid Light (Burn/Dodge)
-  - Difference
+### Blendmode status:
+| Blendmode | Issue |
+| - | - |
+| Normal | Pass |
+| Multiply | Pass |
+| Screen | Pass |
+| Overlay | Broken, depends on Hard Light |
+| Linear Burn (Shade) | Pass |
+| Linear Dodge (Shine) | Pass |
+| Linear Light (Shade/Shine) | Pass |
+| Color Burn (Burn) | Broken when source alpha < 1 |
+| Color Dodge (Dodge) | Broken when source alpha < 1 |
+| Vivid Light (Burn/Dodge) | Broken |
+| Soft Light | Pass |
+| Hard Light | Broken, Multiply part is off when backdrop alpha < 1 |
+| Pin Light | Broken |
+| Hard Mix | Small precision error for near-black colors |
+| Darken | Pass |
+| Lighten | Pass |
+| Darken Color | Pass |
+| Lighten Color | Pass |
+| Difference | Currently [TS] Difference, don't know how to implement yet |
+| Exclude | Pass |
+| Subtract | Pass |
+| Divide | Pass |
+| Hue | Broken, bad HSV computation? |
+| Saturation | Broken, bad HSV computation? |
+| Color | Pass |
+| Luminosity | Pass |
+| [TS] Linear Burn (Shade) | Pass |
+| [TS] Linear Dodge (Shine) | Pass |
+| [TS] Linear Light (Shade/Shine) | Pass |
+| [TS] Color Burn (Burn) | Pass |
+| [TS] Color Dodge (Dodge) | Pass |
+| [TS] Vivid Light (Burn/Dodge) | Pass |
+| [TS] Hard Mix | Small precision error for near-black colors |
+| [TS] Difference | Pass |
 
-- Blend modes that mostly work, but have very different results when the layer below has transparency (0 alpha in a group backdrop will show a darker color than it should, could be an issue with black backdrops):
-  - Hard Light
-  - Pin Light
-
-- Blend modes that seem to be completely broken:
-  - Hue
-  - Saturation
-
+### Missing PSD features:
 - Other things that are not implemented (also not implemented in `psd-tools`):
   - Adjustment layers (gradient map, color balance, etc.)
   - Layer effects (shadow, glow, overlay, strokes, etc.)
