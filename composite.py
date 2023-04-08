@@ -307,8 +307,8 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
                 color_dst = color_src
                 alpha_dst = alpha_src
             else:
-                color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src))
-                alpha_dst = await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src))
+                await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_dst))
+                await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src, out=alpha_dst))
             await set_cached_composite(sublayer, offset, visibility_dependency, (color_dst, alpha_dst))
             continue
 
@@ -344,7 +344,7 @@ async def composite_layers(layers, size, offset, backdrop=None, clip_mode=False)
         # will yield a slightly different result from those programs.
         mask_src = await get_mask_data(sublayer, size, offset)
         if mask_src is not None:
-            color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src))
+            await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_dst))
         else:
             color_dst = color_src
 
