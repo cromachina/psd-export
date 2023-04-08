@@ -63,7 +63,10 @@ def overlay(Cd, Cs, Ad, As):
 
 # SAI Shade
 def linear_burn(Cd, Cs, Ad, As):
-    return Cd + Cs - As * Ad
+    Cdd = util.clip_divide(Cd, Ad)
+    H = Cdd + Cs - As
+    util.clip(H, H)
+    return util.lerp(Cs, H, Ad, out=H)
 
 # SAI Shine
 def linear_dodge(Cd, Cs, Ad, As):
@@ -157,7 +160,7 @@ def hard_mix(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
     H = util.clip_divide(Cdd - As + As * Csd, 1 - As)
-    return util.lerp(Cs, H, Ad)
+    return util.lerp(Cs, H, Ad, out=H)
 
 def ts_hard_mix(Cd, Cs, Ad, As):
     index = Cd * As + Cs * Ad >= As
