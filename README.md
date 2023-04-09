@@ -127,7 +127,7 @@ After exporting:
 | Linear Dodge (Shine) | Pass |
 | Linear Light (Shade/Shine) | Pass |
 | Color Burn (Burn) | Broken when source alpha < 1 |
-| Color Dodge (Dodge) | Broken when source alpha < 1 |
+| Color Dodge (Dodge) | Pass |
 | Vivid Light (Burn/Dodge) | Broken |
 | Soft Light | Pass |
 | Hard Light | Broken, Multiply part is off when backdrop alpha < 1 |

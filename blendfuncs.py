@@ -43,11 +43,11 @@ def overlay(Cd, Cs, Ad, As):
 def linear_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs - As
-    util.clip(H, H)
+    util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
 def linear_burn_non_premul(Cd, Cs):
-    return util.clip(Cd + Cs - 1)
+    return util.clip_in(Cd + Cs - 1)
 
 def ts_linear_burn(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, linear_burn_non_premul)
@@ -56,11 +56,11 @@ def ts_linear_burn(Cd, Cs, Ad, As):
 def linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs
-    util.clip(H, H)
+    util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
 def linear_dodge_non_premul(Cd, Cs):
-    return util.clip(Cd + Cs)
+    return util.clip_in(Cd + Cs)
 
 def ts_linear_dodge(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, linear_dodge_non_premul)
@@ -70,7 +70,7 @@ def linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Cs2 = 2 * Cs
     LB = Cdd + Cs2 - As
-    util.clip(LB, LB)
+    util.clip_in(LB)
     return util.lerp(Cs, LB, Ad, out=LB)
 
 def linear_light_non_premul(Cd, Cs):
@@ -104,12 +104,11 @@ def color_dodge_non_premul(Cd, Cs):
 def ts_color_dodge(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, color_dodge_non_premul)
 
-# FIXME SAI Color Dodge
+# SAI Color Dodge
 def color_dodge(Cd, Cs, Ad, As):
     Cdd = util.safe_divide(Cd, Ad)
-    Csd = util.safe_divide(Cs, As)
-    H = util.safe_divide(Cdd, (1 - Csd))
-    return util.lerp(Cs, H, Ad)
+    H = util.clip_divide(Cdd, 1 - Cs)
+    return util.lerp(Cs, H, Ad, out=H)
 
 def vivid_light_non_premul(Cd, Cs):
     Cs2 = Cs * 2
@@ -195,7 +194,6 @@ darker_color = to_premul(blend.darker_color)
 
 lighter_color = to_premul(blend.lighter_color)
 
-# TS Difference; SAI: seemingly linear
 def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
@@ -209,8 +207,8 @@ def exclusion(Cd, Cs, Ad, As):
 def subtract(Cd, Cs, Ad, As):
     return  np.maximum(0, Cd * As - Cs * Ad) + comp2(Cd, Cs, Ad, As)
 
-# Seems like divide doesn't work properly unless converted to non-premul first.
-divide = to_premul(blend.divide)
+def divide(Cd, Cs, Ad, As):
+    return premul(Cd, Cs, Ad, As, util.clip_divide)
 
 # FIXME Broken
 hue = to_premul(blend.hue)

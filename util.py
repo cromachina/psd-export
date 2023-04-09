@@ -28,7 +28,7 @@ def safe_divide(a, b, out=None):
 
 def clip_divide(a, b, out=None):
     out = safe_divide(a, b, out=out)
-    return clip(out, out=out)
+    return clip_in(out)
 
 def lerp(a, b, t, out=None):
     out = np.subtract(b, a, out=out)
