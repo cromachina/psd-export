@@ -38,90 +38,86 @@ def screen(Cd, Cs, Ad=None, As=None):
 def overlay(Cd, Cs, Ad, As):
     return hard_light(Cs, Cd, As, Ad)
 
-# SAI Shade
-def linear_burn(Cd, Cs, Ad, As):
+def sai_linear_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs - As
     util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
-def linear_burn_non_premul(Cd, Cs):
+def ts_linear_burn_non_premul(Cd, Cs):
     return util.clip_in(Cd + Cs - 1)
 
 def ts_linear_burn(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, linear_burn_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_linear_burn_non_premul)
 
-# SAI Shine
-def linear_dodge(Cd, Cs, Ad, As):
+def sai_linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs
     util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
-def linear_dodge_non_premul(Cd, Cs):
+def ts_linear_dodge_non_premul(Cd, Cs):
     return util.clip_in(Cd + Cs)
 
 def ts_linear_dodge(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, linear_dodge_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_linear_dodge_non_premul)
 
-# SAI Shade/Shine
-def linear_light(Cd, Cs, Ad, As):
+def sai_linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Cs2 = Cs * 2
     LB = Cdd + Cs2 - As
     util.clip_in(LB)
     return util.lerp(Cs, LB, Ad, out=LB)
 
-def linear_light_non_premul(Cd, Cs):
+def ts_linear_light_non_premul(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
-    B = linear_burn_non_premul(Cd, Cs2)
-    D = linear_dodge_non_premul(Cd, Cs2 - 1)
+    B = ts_linear_burn_non_premul(Cd, Cs2)
+    D = ts_linear_dodge_non_premul(Cd, Cs2 - 1)
     B[index] = D[index]
     return B
 
 def ts_linear_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, linear_light_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_linear_light_non_premul)
 
-def color_burn_non_premul(Cd, Cs):
+def ts_color_burn_non_premul(Cd, Cs):
     return 1 - util.clip_divide(1 - Cd, Cs)
 
 def ts_color_burn(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, color_burn_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_color_burn_non_premul)
 
-# FIXME SAI Color Burn
-def color_burn(Cd, Cs, Ad, As):
+# FIXME
+def sai_color_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, As)
     Csd = util.clip_divide(Cs, As)
     AsAd = As * Ad
     B = AsAd - util.clip_divide(AsAd - Cd, Cs)
     return util.lerp(Cs, B, Ad, out=B)
 
-def color_dodge_non_premul(Cd, Cs):
+def ts_color_dodge_non_premul(Cd, Cs):
     return util.clip_divide(Cd, 1 - Cs)
 
 def ts_color_dodge(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, color_dodge_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_color_dodge_non_premul)
 
-# SAI Color Dodge
-def color_dodge(Cd, Cs, Ad, As):
+def sai_color_dodge(Cd, Cs, Ad, As):
     Cdd = util.safe_divide(Cd, Ad)
     H = util.clip_divide(Cdd, 1 - Cs)
     return util.lerp(Cs, H, Ad, out=H)
 
-def vivid_light_non_premul(Cd, Cs):
+def ts_vivid_light_non_premul(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
-    B = color_burn_non_premul(Cd, Cs2)
-    D = color_dodge_non_premul(Cd, Cs2 - 1)
+    B = ts_color_burn_non_premul(Cd, Cs2)
+    D = ts_color_dodge_non_premul(Cd, Cs2 - 1)
     B[index] = D[index]
     return B
 
 def ts_vivid_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, vivid_light_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_vivid_light_non_premul)
 
 # FIXME
-def vivid_light(Cd, Cs, Ad, As):
+def sai_vivid_light(Cd, Cs, Ad, As):
     Cs2 = 2 * Cs
     index = Cs2 > As
     B = ts_color_burn(Cd, Cs2, Ad, As)
@@ -158,7 +154,6 @@ def hard_light_non_premul(Cd, Cs):
     M[index] = S[index]
     return M
 
-# The multiply part is still slightly off when Ad < 1
 def hard_light(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, hard_light_non_premul)
 
@@ -173,20 +168,19 @@ def pin_light_non_premul(Cd, Cs):
 def pin_light(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, pin_light_non_premul)
 
-# SAI Hard Mix
-def hard_mix(Cd, Cs, Ad, As):
+def sai_hard_mix(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
     H = util.clip_divide(Cdd - As + As * Csd, 1 - As)
     return util.lerp(Cs, H, Ad, out=H)
 
-def hard_mix_non_premul(Cd, Cs):
+def ts_hard_mix_non_premul(Cd, Cs):
     B = np.zeros_like(Cd)
     B[(Cd + Cs) > 1] = 1
     return B
 
 def ts_hard_mix(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, hard_mix_non_premul)
+    return premul(Cd, Cs, Ad, As, ts_hard_mix_non_premul)
 
 def darken(Cd, Cs, Ad, As):
     return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
@@ -201,8 +195,7 @@ lighter_color = to_premul(blend.lighter_color)
 def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
-# SAI Difference
-def difference(Cd, Cs, Ad, As):
+def sai_difference(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     D = np.abs(Cdd - Cs)
     return util.lerp(Cs, D, Ad)
@@ -256,14 +249,14 @@ blend_modes = {
 }
 
 special_blend_modes = {
-    BlendMode.LINEAR_BURN: linear_burn,
-    BlendMode.LINEAR_DODGE: linear_dodge,
-    BlendMode.LINEAR_LIGHT: linear_light,
-    BlendMode.COLOR_BURN: color_burn,
-    BlendMode.COLOR_DODGE: color_dodge,
-    BlendMode.VIVID_LIGHT: vivid_light,
-    BlendMode.HARD_MIX: hard_mix,
-    BlendMode.DIFFERENCE: difference,
+    BlendMode.LINEAR_BURN: sai_linear_burn,
+    BlendMode.LINEAR_DODGE: sai_linear_dodge,
+    BlendMode.LINEAR_LIGHT: sai_linear_light,
+    BlendMode.COLOR_BURN: sai_color_burn,
+    BlendMode.COLOR_DODGE: sai_color_dodge,
+    BlendMode.VIVID_LIGHT: sai_vivid_light,
+    BlendMode.HARD_MIX: sai_hard_mix,
+    BlendMode.DIFFERENCE: sai_difference,
 }
 
 def normal_alpha(Ad, As):
