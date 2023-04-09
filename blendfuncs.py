@@ -88,10 +88,9 @@ def ts_color_burn(Cd, Cs, Ad, As):
 
 # FIXME
 def sai_color_burn(Cd, Cs, Ad, As):
-    Cdd = util.clip_divide(Cd, As)
+    Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
-    AsAd = As * Ad
-    B = AsAd - util.clip_divide(AsAd - Cd, Cs)
+    B = 1 - util.clip_divide(1 - Cdd, Csd) + comp(Cdd, As)
     return util.lerp(Cs, B, Ad, out=B)
 
 def ts_color_dodge_non_premul(Cd, Cs):
@@ -101,7 +100,7 @@ def ts_color_dodge(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, ts_color_dodge_non_premul)
 
 def sai_color_dodge(Cd, Cs, Ad, As):
-    Cdd = util.safe_divide(Cd, Ad)
+    Cdd = util.clip_divide(Cd, Ad)
     H = util.clip_divide(Cdd, 1 - Cs)
     return util.lerp(Cs, H, Ad, out=H)
 
@@ -136,7 +135,7 @@ def soft_light_broken(Cd, Cs, Ad, As):
     ib = (4 * Cd) <= Ad
     index2 = ia & ib
     index3 = ia & (~ib)
-    m = util.safe_divide(Cd, Ad)
+    m = util.clip_divide(Cd, Ad)
     B = np.zeros_like(Cs)
     x = Cs2 - As
     Adx = Ad * x
