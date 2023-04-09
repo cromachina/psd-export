@@ -57,7 +57,7 @@ def delete_shared(image_sm):
     image_sm[2].close()
     image_sm[2].unlink()
 
-def save_worker(file_name, image_sm):
+def save_worker(file_name, image_sm, imwrite_args=[]):
     logging.basicConfig(level=logging.INFO)
     try:
         image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
@@ -69,16 +69,16 @@ def save_worker(file_name, image_sm):
                 image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
         else:
             image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
-        cv2.imwrite(file_name, image)
+        cv2.imwrite(file_name, image, imwrite_args)
         logging.info(f'exported: {file_name}')
     except Exception as e:
         logging.exception(e)
     finally:
         delete_shared(image_sm)
 
-def save_file(file_name, image):
+def save_file(file_name, image, imwrite_args=[]):
     image = np.dstack(image)
-    file_writer_futures.append(file_writer_pool.submit(save_worker, str(file_name), make_shared(image)))
+    file_writer_futures.append(file_writer_pool.submit(save_worker, str(file_name), make_shared(image), imwrite_args))
 
 def file_writer_wait_all():
     for f in file_writer_futures:

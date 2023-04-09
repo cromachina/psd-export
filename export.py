@@ -6,6 +6,7 @@ import re
 import time
 from collections import namedtuple
 
+import cv2
 from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
 
@@ -94,7 +95,7 @@ def export_variant(psd, file_name, config, enabled_tags):
     image = composite.composite(psd)
 
     export_name.parent.mkdir(parents=True, exist_ok=True)
-    util.save_file(export_name, image)
+    util.save_file(export_name, image, [cv2.IMWRITE_PNG_COMPRESSION, config.png_compression, cv2.IMWRITE_JPEG_QUALITY, config.jpg_quality])
 
 def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
     if not secondary_tags:
@@ -156,6 +157,10 @@ if __name__ == '__main__':
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
     parser.add_argument('--mosaic-factor', default=100, type=float,
         help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
+    parser.add_argument('--png-compression', default=1, type=int,
+        help='Set the compression level for PNG output (0 to 9).')
+    parser.add_argument('--jpg-quality', default=95, type=int,
+        help='Set the quality level for JPG output (0 to 100).')
     parser.add_argument('--output-type', type=str, default='png',
         help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
     parser.add_argument('--file-name', type=str, default='*.psd',
