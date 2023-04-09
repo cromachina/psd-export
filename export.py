@@ -113,7 +113,7 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
 def export_all_variants(file_name, config):
     psd = PSDImage.open(file_name)
 
-    file_name = pathlib.Path(file_name).with_suffix('.png')
+    file_name = pathlib.Path(file_name).with_suffix(f'.{config.output_type}')
 
     primary_tags = pset()
     secondary_tags = pmap()
@@ -156,6 +156,8 @@ if __name__ == '__main__':
         help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
     parser.add_argument('--mosaic-factor', default=100, type=float,
         help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
+    parser.add_argument('--output-type', type=str, default='png',
+        help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
     parser.add_argument('--file-name', type=str, default='*.psd',
         help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
