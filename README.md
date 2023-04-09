@@ -128,11 +128,11 @@ After exporting:
 | Linear Light (Shade/Shine) | Pass |
 | Color Burn (Burn) | Broken when source alpha < 1 |
 | Color Dodge (Dodge) | Pass |
-| Vivid Light (Burn/Dodge) | Broken |
+| Vivid Light (Burn/Dodge) | Broken, currently [TS] Vivid Light |
 | Soft Light | Pass |
 | Hard Light | Pass |
 | Pin Light | Pass |
-| Hard Mix | Small precision error for near-black colors |
+| Hard Mix | Small precision error for near-black colors, can look slightly different from SAI |
 | Darken | Pass |
 | Lighten | Pass |
 | Darken Color | Pass |
@@ -151,7 +151,7 @@ After exporting:
 | [TS] Color Burn (Burn) | Pass |
 | [TS] Color Dodge (Dodge) | Pass |
 | [TS] Vivid Light (Burn/Dodge) | Pass |
-| [TS] Hard Mix | Small precision error for near-black colors |
+| [TS] Hard Mix | Small precision error for near-black colors, can look slightly different from SAI |
 | [TS] Difference | Pass |
 
 ### Missing PSD features:

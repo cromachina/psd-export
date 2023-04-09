@@ -109,6 +109,7 @@ def ts_vivid_light(Cd, Cs):
 
 # FIXME
 def sai_vivid_light(Cd, Cs, Ad, As):
+    return ts_vivid_light(Cd, Cs, Ad, As)
     Cs2 = 2 * Cs
     index = Cs2 > As
     B = ts_color_burn(Cd, Cs2, Ad, As)
