@@ -136,7 +136,10 @@ async def get_cached_layer_data(layer:Layer, channel):
     attr_name = f'_cache_{channel}'
     async with layer._data_cache_lock:
         if not hasattr(layer, attr_name):
-            setattr(layer, attr_name, layer.numpy(channel))
+            data = layer.numpy(channel)
+            if data is not None:
+                data = data.astype(np.float64)
+            setattr(layer, attr_name, data)
         return getattr(layer, attr_name)
 
 async def get_padded_data(layer, channel, size, offset, data_offset, fill=0.0):
