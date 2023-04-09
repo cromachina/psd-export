@@ -137,7 +137,7 @@ After exporting:
 | Lighten | Pass |
 | Darken Color | Pass |
 | Lighten Color | Pass |
-| Difference | Currently [TS] Difference, don't know how to implement yet |
+| Difference | Pass |
 | Exclude | Pass |
 | Subtract | Pass |
 | Divide | Pass |

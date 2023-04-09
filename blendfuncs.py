@@ -173,6 +173,7 @@ def pin_light_non_premul(Cd, Cs):
 def pin_light(Cd, Cs, Ad, As):
     return premul(Cd, Cs, Ad, As, pin_light_non_premul)
 
+# SAI Hard Mix
 def hard_mix(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
@@ -200,9 +201,11 @@ lighter_color = to_premul(blend.lighter_color)
 def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
 
-# FIXME
+# SAI Difference
 def difference(Cd, Cs, Ad, As):
-    return ts_difference(Cd, Cs, Ad, As)
+    Cdd = util.clip_divide(Cd, Ad)
+    D = np.abs(Cdd - Cs)
+    return util.lerp(Cs, D, Ad)
 
 def exclusion(Cd, Cs, Ad, As):
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
