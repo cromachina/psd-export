@@ -131,7 +131,7 @@ After exporting:
 | Vivid Light (Burn/Dodge) | Broken |
 | Soft Light | Pass |
 | Hard Light | Broken, Multiply part is off when backdrop alpha < 1 |
-| Pin Light | Broken |
+| Pin Light | Pass |
 | Hard Mix | Small precision error for near-black colors |
 | Darken | Pass |
 | Lighten | Pass |

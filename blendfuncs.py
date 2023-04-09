@@ -68,7 +68,7 @@ def ts_linear_dodge(Cd, Cs, Ad, As):
 # SAI Shade/Shine
 def linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
-    Cs2 = 2 * Cs
+    Cs2 = Cs * 2
     LB = Cdd + Cs2 - As
     util.clip_in(LB)
     return util.lerp(Cs, LB, Ad, out=LB)
@@ -162,13 +162,16 @@ def hard_light(Cd, Cs, Ad, As):
     M[index] = S[index]
     return util.lerp(Cs, M, Ad, out=M)
 
-#FIXME
+def pin_light_non_premul(Cd, Cs):
+    Cs2 = Cs * 2
+    index = Cs > 0.5
+    D = np.minimum(Cs2, Cd)
+    L = np.maximum(Cs2 - 1, Cd)
+    D[index] = L[index]
+    return D
+
 def pin_light(Cd, Cs, Ad, As):
-    Cs2 = 2 * Cs
-    index = Cs2 > As
-    B = darken(Cd, Cs2, Ad, As)
-    B[index] = lighten(Cd, Cs2 - As, Ad, As)[index]
-    return B
+    return premul(Cd, Cs, Ad, As, pin_light_non_premul)
 
 def hard_mix(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
