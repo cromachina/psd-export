@@ -122,7 +122,7 @@ After exporting:
 | Normal | Pass |
 | Multiply | Pass |
 | Screen | Pass |
-| Overlay | Broken, depends on Hard Light |
+| Overlay | Pass |
 | Linear Burn (Shade) | Pass |
 | Linear Dodge (Shine) | Pass |
 | Linear Light (Shade/Shine) | Pass |
@@ -130,7 +130,7 @@ After exporting:
 | Color Dodge (Dodge) | Pass |
 | Vivid Light (Burn/Dodge) | Broken |
 | Soft Light | Pass |
-| Hard Light | Broken, Multiply part is off when backdrop alpha < 1 |
+| Hard Light | Pass |
 | Pin Light | Pass |
 | Hard Mix | Small precision error for near-black colors |
 | Darken | Pass |

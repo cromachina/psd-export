@@ -32,10 +32,9 @@ def normal(Cd, Cs, Ad, As):
 def multiply(Cd, Cs, Ad, As):
     return Cs * Cd + comp2(Cd, Cs, Ad, As)
 
-def screen(Cd, Cs, Ad, As):
+def screen(Cd, Cs, Ad=None, As=None):
     return Cs + Cd - Cs * Cd
 
-# Still messed up because hard light is messed up
 def overlay(Cd, Cs, Ad, As):
     return hard_light(Cs, Cd, As, Ad)
 
@@ -151,16 +150,17 @@ def soft_light_broken(Cd, Cs, Ad, As):
     B[index] = (Cd * (As + x * (1 - m)) + comp2(Cd, Cs, Ad, As))[index]
     return B
 
+def hard_light_non_premul(Cd, Cs):
+    Cs2 = Cs * 2
+    index = Cs > 0.5
+    M = Cd * Cs2
+    S = screen(Cd, Cs2 - 1)
+    M[index] = S[index]
+    return M
+
 # The multiply part is still slightly off when Ad < 1
 def hard_light(Cd, Cs, Ad, As):
-    Cdd = util.clip_divide(Cd, Ad)
-    Cs2 = Cs * 2
-    index = Cs2 > As
-    M = Cdd * Cs2 + comp2(Cdd, Cs, Ad, As)
-    #M = multiply(Cdd, Cs2, Ad, As)
-    S = screen(Cdd, Cs2 - As, Ad, As)
-    M[index] = S[index]
-    return util.lerp(Cs, M, Ad, out=M)
+    return premul(Cd, Cs, Ad, As, hard_light_non_premul)
 
 def pin_light_non_premul(Cd, Cs):
     Cs2 = Cs * 2
