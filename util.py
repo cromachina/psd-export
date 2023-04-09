@@ -62,10 +62,13 @@ def save_worker(file_name, image_sm):
     try:
         image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
         image = np.multiply(image, 255).astype(np.uint8)
-        if is_grayscale(image):
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        if (image[:,:,3] == 255).all():
+            if is_grayscale(image):
+                image = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
+            else:
+                image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
         else:
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
         cv2.imwrite(file_name, image)
         logging.info(f'exported: {file_name}')
     except Exception as e:
@@ -74,6 +77,7 @@ def save_worker(file_name, image_sm):
         delete_shared(image_sm)
 
 def save_file(file_name, image):
+    image = np.dstack(image)
     file_writer_futures.append(file_writer_pool.submit(save_worker, str(file_name), make_shared(image)))
 
 def file_writer_wait_all():

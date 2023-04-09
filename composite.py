@@ -377,6 +377,7 @@ async def composite_tile(psd, size, offset, color, alpha):
     tile_color, tile_alpha = await composite_layers(psd, size, offset)
     if tile_color is not None:
         await peval(lambda: blit(color, tile_color, offset))
+        await peval(lambda: blit(alpha, tile_alpha, offset))
 
 def generate_tiles(size, tile_size):
     height, width = size
@@ -393,12 +394,12 @@ def generate_tiles(size, tile_size):
 
 def composite(psd, tile_size=(256,256)):
     '''
-    Composite the given PSD and return a numpy array.
+    Composite the given PSD and return color (RGB) and alpha arrays.
     `tile_size` is arranged by (height, width)
     '''
     size = psd.height, psd.width
     color = np.ndarray(size + (3,))
-    alpha = None
+    alpha = np.ndarray(size + (1,))
 
     tasks = []
 
@@ -412,4 +413,4 @@ def composite(psd, tile_size=(256,256)):
 
     asyncio.run(run())
 
-    return color
+    return color, alpha
