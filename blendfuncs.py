@@ -47,8 +47,7 @@ def sai_linear_burn(Cd, Cs, Ad, As):
 def ts_linear_burn_non_premul(Cd, Cs):
     return util.clip_in(Cd + Cs - 1)
 
-def ts_linear_burn(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_linear_burn_non_premul)
+ts_linear_burn = to_premul(ts_linear_burn_non_premul)
 
 def sai_linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
@@ -59,8 +58,7 @@ def sai_linear_dodge(Cd, Cs, Ad, As):
 def ts_linear_dodge_non_premul(Cd, Cs):
     return util.clip_in(Cd + Cs)
 
-def ts_linear_dodge(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_linear_dodge_non_premul)
+ts_linear_dodge = to_premul(ts_linear_dodge_non_premul)
 
 def sai_linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
@@ -69,7 +67,8 @@ def sai_linear_light(Cd, Cs, Ad, As):
     util.clip_in(LB)
     return util.lerp(Cs, LB, Ad, out=LB)
 
-def ts_linear_light_non_premul(Cd, Cs):
+@to_premul
+def ts_linear_light(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
     B = ts_linear_burn_non_premul(Cd, Cs2)
@@ -77,43 +76,36 @@ def ts_linear_light_non_premul(Cd, Cs):
     B[index] = D[index]
     return B
 
-def ts_linear_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_linear_light_non_premul)
-
 def ts_color_burn_non_premul(Cd, Cs):
     return 1 - util.clip_divide(1 - Cd, Cs)
 
-def ts_color_burn(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_color_burn_non_premul)
+ts_color_burn = to_premul(ts_color_burn_non_premul)
 
 # FIXME
 def sai_color_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
-    B = 1 - util.clip_divide(1 - Cdd, Csd) + comp(Cdd, As)
+    B = 1 - util.clip_divide(1 - Cdd, Cs) + comp(Cdd, As)
     return util.lerp(Cs, B, Ad, out=B)
 
 def ts_color_dodge_non_premul(Cd, Cs):
     return util.clip_divide(Cd, 1 - Cs)
 
-def ts_color_dodge(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_color_dodge_non_premul)
+ts_color_dodge = to_premul(ts_color_dodge_non_premul)
 
 def sai_color_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = util.clip_divide(Cdd, 1 - Cs)
     return util.lerp(Cs, H, Ad, out=H)
 
-def ts_vivid_light_non_premul(Cd, Cs):
+@to_premul
+def ts_vivid_light(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
     B = ts_color_burn_non_premul(Cd, Cs2)
     D = ts_color_dodge_non_premul(Cd, Cs2 - 1)
     B[index] = D[index]
     return B
-
-def ts_vivid_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_vivid_light_non_premul)
 
 # FIXME
 def sai_vivid_light(Cd, Cs, Ad, As):
@@ -123,29 +115,10 @@ def sai_vivid_light(Cd, Cs, Ad, As):
     B[index] = ts_color_dodge(Cd, Cs2 - As, Ad, As)[index]
     return B
 
-def soft_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, blend.soft_light)
+soft_light = to_premul(blend.soft_light)
 
-# FIXME broken soft light. This function is so confusing.
-# SAI: Seemingly linear.
-def soft_light_broken(Cd, Cs, Ad, As):
-    Cs2 = 2 * Cs
-    index = Cs2 <= As
-    ia = ~index
-    ib = (4 * Cd) <= Ad
-    index2 = ia & ib
-    index3 = ia & (~ib)
-    m = util.clip_divide(Cd, Ad)
-    B = np.zeros_like(Cs)
-    x = Cs2 - As
-    Adx = Ad * x
-    y = Cs - (Cs * Ad) + Cd
-    B[index3] = (Adx * (np.sqrt(m) - m) + y)[index3]
-    B[index2] = (Adx * (16 * (m ** 3) - 12 * (m ** 2) - 3 * m) + y)[index2]
-    B[index] = (Cd * (As + x * (1 - m)) + comp2(Cd, Cs, Ad, As))[index]
-    return B
-
-def hard_light_non_premul(Cd, Cs):
+@to_premul
+def hard_light(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
     M = Cd * Cs2
@@ -153,10 +126,8 @@ def hard_light_non_premul(Cd, Cs):
     M[index] = S[index]
     return M
 
-def hard_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, hard_light_non_premul)
-
-def pin_light_non_premul(Cd, Cs):
+@to_premul
+def pin_light(Cd, Cs):
     Cs2 = Cs * 2
     index = Cs > 0.5
     D = np.minimum(Cs2, Cd)
@@ -164,22 +135,17 @@ def pin_light_non_premul(Cd, Cs):
     D[index] = L[index]
     return D
 
-def pin_light(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, pin_light_non_premul)
-
 def sai_hard_mix(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Csd = util.clip_divide(Cs, As)
     H = util.clip_divide(Cdd - As + As * Csd, 1 - As)
     return util.lerp(Cs, H, Ad, out=H)
 
-def ts_hard_mix_non_premul(Cd, Cs):
+@to_premul
+def ts_hard_mix(Cd, Cs):
     B = np.zeros_like(Cd)
     B[(Cd + Cs) > 1] = 1
     return B
-
-def ts_hard_mix(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, ts_hard_mix_non_premul)
 
 def darken(Cd, Cs, Ad, As):
     return np.minimum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
@@ -203,10 +169,9 @@ def exclusion(Cd, Cs, Ad, As):
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
 
 def subtract(Cd, Cs, Ad, As):
-    return  np.maximum(0, Cd * As - Cs * Ad) + comp2(Cd, Cs, Ad, As)
+    return np.maximum(0, Cd * As - Cs * Ad) + comp2(Cd, Cs, Ad, As)
 
-def divide(Cd, Cs, Ad, As):
-    return premul(Cd, Cs, Ad, As, util.clip_divide)
+divide = to_premul(util.clip_divide)
 
 # FIXME Broken
 hue = to_premul(blend.hue)
