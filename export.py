@@ -8,7 +8,6 @@ import time
 from collections import namedtuple
 
 import cv2
-from psd_tools import PSDImage
 from pyrsistent import pmap, pset, pvector
 
 import composite
@@ -82,16 +81,16 @@ async def export_variant(psd, file_name, config, enabled_tags):
             if custom_op:
                 custom_ops.append(lambda c, a: custom_op(c, a, *tag.args))
 
-        for tag in layer._tags:
+        for tag in layer.tags:
             if not tag.ignore:
                 layer.visible = False
-        for tag in layer._tags:
+        for tag in layer.tags:
             if tag.ignore:
                 add_op(tag)
             elif (tag.name, tag.xor_group) in enabled_tags:
                 layer.visible = True
                 add_op(tag)
-        composite.set_custom_operation(layer, composite.chain_ops(custom_ops))
+        layer.custom_op = composite.chain_ops(custom_ops)
 
     image = await composite.composite(psd)
 
@@ -113,7 +112,7 @@ async def export_combinations(psd, file_name, config, secondary_tags, enabled_ta
             await export_combinations(psd, file_name, config, secondary_tags, next_enabled)
 
 async def export_all_variants(file_name, config):
-    psd = PSDImage.open(file_name)
+    psd = composite.PSDOpen(file_name)
 
     file_name = pathlib.Path(file_name).with_suffix(f'.{config.output_type}')
 
@@ -122,7 +121,7 @@ async def export_all_variants(file_name, config):
 
     for layer in psd.descendants():
         tags = parse_tags(layer.name)
-        layer._tags = tags
+        layer.tags = tags
         for tag in tags:
             if tag.ignore:
                 continue
