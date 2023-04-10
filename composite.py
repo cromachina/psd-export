@@ -1,21 +1,14 @@
 import asyncio
 import pathlib
-from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
-import psutil
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
 
 import blendfuncs
 import util
-
-worker_count = psutil.cpu_count(False)
-pool = ThreadPoolExecutor(max_workers=worker_count)
-
-def peval(func):
-    return asyncio.get_running_loop().run_in_executor(pool, func)
+from util import peval
 
 async def barrier_skip(barrier):
     try:
@@ -392,14 +385,14 @@ def generate_tiles(size, tile_size):
             x += tile_width
         y += tile_height
 
-def composite(psd, tile_size=(256,256)):
+async def composite(psd, tile_size=(256,256)):
     '''
     Composite the given PSD and return color (RGB) and alpha arrays.
     `tile_size` is arranged by (height, width)
     '''
     size = psd.height, psd.width
-    color = np.ndarray(size + (3,))
-    alpha = np.ndarray(size + (1,))
+    color = np.zeros(size + (3,))
+    alpha = np.zeros(size + (1,))
 
     tasks = []
 
@@ -408,9 +401,6 @@ def composite(psd, tile_size=(256,256)):
 
     set_layer_extra_data(psd, len(tasks), size)
 
-    async def run():
-        await asyncio.gather(*tasks)
-
-    asyncio.run(run())
+    await asyncio.gather(*tasks)
 
     return color, alpha

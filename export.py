@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import glob
 import logging
 import pathlib
@@ -66,7 +67,7 @@ def compute_file_name(base_file_name, config, enabled_tags):
         next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}-{group_name}')
     return next_file_name
 
-def export_variant(psd, file_name, config, enabled_tags):
+async def export_variant(psd, file_name, config, enabled_tags):
     export_name = compute_file_name(file_name, config, enabled_tags)
 
     if config.dryrun:
@@ -92,12 +93,12 @@ def export_variant(psd, file_name, config, enabled_tags):
                 add_op(tag)
         composite.set_custom_operation(layer, composite.chain_ops(custom_ops))
 
-    image = composite.composite(psd)
+    image = await composite.composite(psd)
 
     export_name.parent.mkdir(parents=True, exist_ok=True)
     util.save_file(export_name, image, [cv2.IMWRITE_PNG_COMPRESSION, config.png_compression, cv2.IMWRITE_JPEG_QUALITY, config.jpg_quality])
 
-def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
+async def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
     if not secondary_tags:
         return
 
@@ -108,10 +109,10 @@ def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
         secondary_tags = secondary_tags.remove(xor_group)
         for tag in tags:
             next_enabled = enabled_tags.append((tag, xor_group))
-            export_variant(psd, file_name, config, next_enabled)
-            export_combinations(psd, file_name, config, secondary_tags, next_enabled)
+            await export_variant(psd, file_name, config, next_enabled)
+            await export_combinations(psd, file_name, config, secondary_tags, next_enabled)
 
-def export_all_variants(file_name, config):
+async def export_all_variants(file_name, config):
     psd = PSDImage.open(file_name)
 
     file_name = pathlib.Path(file_name).with_suffix(f'.{config.output_type}')
@@ -141,10 +142,10 @@ def export_all_variants(file_name, config):
     for primary_tag in primary_tags:
         enabled = pvector([(primary_tag, None)])
         if not config.only_secondary_tags:
-            export_variant(psd, file_name, config, enabled)
-        export_combinations(psd, file_name, config, secondary_tags, enabled)
+            await export_variant(psd, file_name, config, enabled)
+        await export_combinations(psd, file_name, config, secondary_tags, enabled)
 
-if __name__ == '__main__':
+async def main():
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser()
     parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
@@ -170,6 +171,9 @@ if __name__ == '__main__':
     composite.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
-        export_all_variants(file_name, args)
-    util.file_writer_wait_all()
+        await export_all_variants(file_name, args)
+    await util.save_workers_wait_all()
     logging.info(f'export time: {time.perf_counter() - start}')
+
+if __name__ == '__main__':
+    asyncio.run(main())

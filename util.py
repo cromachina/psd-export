@@ -1,12 +1,18 @@
+import asyncio
 import logging
-from concurrent.futures import ProcessPoolExecutor
-from multiprocessing.shared_memory import SharedMemory
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
+import psutil
 
-file_writer_pool = ProcessPoolExecutor(1)
 file_writer_futures = []
+
+worker_count = psutil.cpu_count(False)
+pool = ThreadPoolExecutor(max_workers=worker_count)
+
+def peval(func):
+    return asyncio.get_running_loop().run_in_executor(pool, func)
 
 def swap(a):
     x, y = a
@@ -47,40 +53,23 @@ def is_grayscale(image):
     r, g, b = image[:,:,0], image[:,:,1], image[:,:,2]
     return (r == g).all() and (g == b).all()
 
-def make_shared(image):
-    sm = SharedMemory(create=True, size=image.nbytes)
-    a = np.ndarray(image.shape, dtype=image.dtype, buffer=sm.buf)
-    np.copyto(a, image)
-    return (image.shape, image.dtype, sm)
-
-def delete_shared(image_sm):
-    image_sm[2].close()
-    image_sm[2].unlink()
-
-def save_worker(file_name, image_sm, imwrite_args=[]):
-    logging.basicConfig(level=logging.INFO)
-    try:
-        image = np.ndarray(image_sm[0], image_sm[1], image_sm[2].buf)
-        image = np.multiply(image, 255).astype(np.uint8)
-        if (image[:,:,3] == 255).all():
-            if is_grayscale(image):
-                image = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
-            else:
-                image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+def save_worker(file_name, image, imwrite_args=[]):
+    image = np.dstack(image)
+    image *= 255
+    image = image.astype(np.uint8)
+    if (image[:,:,3] == 255).all():
+        if is_grayscale(image):
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
         else:
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
-        cv2.imwrite(file_name, image, imwrite_args)
-        logging.info(f'exported: {file_name}')
-    except Exception as e:
-        logging.exception(e)
-    finally:
-        delete_shared(image_sm)
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+    else:
+        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGRA)
+    cv2.imwrite(file_name, image, imwrite_args)
+    logging.info(f'exported: {file_name}')
 
 def save_file(file_name, image, imwrite_args=[]):
-    image = np.dstack(image)
-    file_writer_futures.append(file_writer_pool.submit(save_worker, str(file_name), make_shared(image), imwrite_args))
+    file_writer_futures.append(peval(lambda: save_worker(str(file_name), image, imwrite_args)))
 
-def file_writer_wait_all():
-    for f in file_writer_futures:
-        f.result()
+async def save_workers_wait_all():
+    await asyncio.gather(*file_writer_futures)
     file_writer_futures.clear()
