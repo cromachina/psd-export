@@ -29,8 +29,8 @@ def clip_in(val):
 
 def safe_divide(a, b, out=None):
     with np.errstate(divide='ignore', invalid='ignore'):
-        out = np.divide(a, b, out=out)
-        return np.nan_to_num(out, False, 0.0)
+        eps = np.finfo(a.dtype).eps
+        return np.divide(a, b + eps, out=out)
 
 def clip_divide(a, b, out=None):
     out = safe_divide(a, b, out=out)
