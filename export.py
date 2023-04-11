@@ -150,7 +150,7 @@ async def export_all_variants(file_name, config):
                 secondary_tags = secondary_tags.set(tag.xor_group, group)
 
     if not primary_layers:
-        primary_layers = primary_layers.set(psd, pset(''))
+        primary_layers = primary_layers.set(psd, pset(['']))
 
     while primary_layers:
         _, tags = get_least_tagged_layer(primary_layers)
