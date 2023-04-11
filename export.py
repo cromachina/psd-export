@@ -5,7 +5,7 @@ import logging
 import pathlib
 import re
 import time
-from collections import namedtuple
+from typing import NamedTuple
 
 import cv2
 from pyrsistent import pmap, pset, pvector
@@ -13,7 +13,11 @@ from pyrsistent import pmap, pset, pvector
 import composite
 import util
 
-Tag = namedtuple('Tag', ["ignore", "name", "xor_group", "args"])
+class Tag(NamedTuple):
+    ignore: bool
+    name: str
+    xor_group: str
+    args: list[str]
 
 tag_regex = re.compile('\[(.*?)\]')
 
