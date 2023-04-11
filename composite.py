@@ -32,6 +32,7 @@ class WrappedLayer():
         self.visibility_dependency = None
         self.tag_dependency = None
         self.cache_hit = ''
+        self.worker_counter = 0
 
         if self.layer.is_group():
             for sublayer, sub_clip_layers in get_layer_and_clip_groupings(self.layer):
@@ -161,7 +162,9 @@ def get_visibility_dependency(layer:WrappedLayer, visit_all=False):
     return frozenset(visited)
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
+    set_tag_dependency(layer)
     for sublayer in layer.descendants():
+        sublayer.worker_counter = tile_count
         sublayer.cache_hit = ''
         if sublayer.visible:
             sublayer.visibility_dependency = get_visibility_dependency(sublayer)
@@ -195,6 +198,16 @@ def clear_descendants_composite_cache(layer:WrappedLayer):
     for sublayer in layer.descendants():
         sublayer.composite_cache.clear()
 
+def set_tag_dependency(layer:WrappedLayer):
+    for sublayer in layer.descendants():
+        if sublayer.tag_dependency is None:
+            v = get_visibility_dependency(sublayer, True)
+            sublayer.tag_dependency = False
+            for v_layer in v:
+                if v_layer.tags:
+                    sublayer.tag_dependency = True
+                    break
+
 def set_skip_to_last_untagged(layer:WrappedLayer):
     skip = False
     for child in reversed(layer.children):
@@ -204,18 +217,7 @@ def set_skip_to_last_untagged(layer:WrappedLayer):
         if skip and child.composite_cache:
             child.skip = True
 
-def clear_safe_data_caches(layer:WrappedLayer):
-    for sublayer in layer.descendants():
-        if sublayer.tag_dependency is None:
-            v = get_visibility_dependency(sublayer, True)
-            sublayer.tag_dependency = False
-            for v_layer in v:
-                if v_layer.tags:
-                    sublayer.tag_dependency = True
-                    break
-        if not sublayer.tag_dependency:
-            sublayer.data_cache.clear()
-            clear_descendants_composite_cache(sublayer)
+def set_skips(layer:WrappedLayer):
     for sublayer in layer.descendants():
         set_skip_to_last_untagged(sublayer)
 
@@ -325,9 +327,16 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
     sublayer:WrappedLayer
     for sublayer in layer:
+        def delete_cache_check():
+            sublayer.worker_counter -= 1
+            if sublayer.worker_counter == 0 and not sublayer.tag_dependency:
+                sublayer.data_cache.clear()
+                clear_descendants_composite_cache(sublayer)
+
         if not sublayer.visible or sublayer.skip:
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
+            delete_cache_check()
             continue
 
         cached_composite = get_cached_composite(sublayer, offset)
@@ -336,6 +345,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             sublayer.cache_hit = True
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
+            delete_cache_check()
             continue
         else:
             sublayer.cache_hit = False
@@ -355,6 +365,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
+            delete_cache_check()
             continue
 
         # Perform custom filter over the current color_dst
@@ -437,6 +448,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
 
         set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
+        delete_cache_check()
 
     if np.isscalar(color_dst):
         return None, None
@@ -490,6 +502,6 @@ async def composite(psd:WrappedLayer, tile_size=(256,256)):
 
     await asyncio.gather(*tasks)
 
-    clear_safe_data_caches(psd)
+    set_skips(psd)
 
     return color, alpha
