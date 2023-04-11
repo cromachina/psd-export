@@ -20,6 +20,7 @@ class WrappedLayer():
         self.parent:WrappedLayer = parent
         self.name = layer.name
         self.visible = True if layer.kind == 'psdimage' else layer.visible
+        self.skip = False
         self.custom_op = None
         self.children:list[WrappedLayer] = []
         self.flat_children:list[WrappedLayer] = []
@@ -194,19 +195,14 @@ def clear_descendants_composite_cache(layer:WrappedLayer):
     for sublayer in layer.descendants():
         sublayer.composite_cache.clear()
 
-def set_cache_skips(layer:WrappedLayer):
-    for sub_cache in layer.composite_cache.values():
-        for k in sub_cache.keys():
-            sub_cache[k] = CACHE_SKIP
-
-def set_cache_skip_to_last_untagged(layer:WrappedLayer):
+def set_skip_to_last_untagged(layer:WrappedLayer):
     skip = False
     for child in reversed(layer.children):
         if not child.tag_dependency and not skip:
             skip = True
             continue
-        if skip:
-            set_cache_skips(child)
+        if skip and child.composite_cache:
+            child.skip = True
 
 def clear_safe_data_caches(layer:WrappedLayer):
     for sublayer in layer.descendants():
@@ -221,7 +217,7 @@ def clear_safe_data_caches(layer:WrappedLayer):
             sublayer.data_cache.clear()
             clear_descendants_composite_cache(sublayer)
     for sublayer in layer.descendants():
-        set_cache_skip_to_last_untagged(sublayer)
+        set_skip_to_last_untagged(sublayer)
 
 def get_cached_layer_data(layer:WrappedLayer, channel):
     with layer.data_cache_lock:
@@ -320,8 +316,6 @@ def get_sai_special_mode_opacity(layer:Layer):
         return float(iOpa.data) / 255.0, True
     return layer.opacity / 255.0, False
 
-CACHE_SKIP = object()
-
 async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
         color_dst, alpha_dst = backdrop
@@ -331,18 +325,15 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
     sublayer:WrappedLayer
     for sublayer in layer:
-        if not sublayer.visible:
+        if not sublayer.visible or sublayer.skip:
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
             continue
 
         cached_composite = get_cached_composite(sublayer, offset)
         if cached_composite is not None:
-            if cached_composite is not CACHE_SKIP:
-                color_dst, alpha_dst = cached_composite
-                sublayer.cache_hit = True
-            else:
-                sublayer.cache_hit = 'SKIP'
+            color_dst, alpha_dst = cached_composite
+            sublayer.cache_hit = True
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
             continue
