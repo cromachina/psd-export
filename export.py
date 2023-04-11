@@ -184,10 +184,6 @@ async def main():
         help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
 
-    import os
-    os.chdir("H:/art/temp")
-    args = parser.parse_args("--file 20230403.psd --out jpg".split())
-
     composite.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
