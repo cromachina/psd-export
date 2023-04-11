@@ -111,12 +111,29 @@ async def export_combinations(psd, file_name, config, secondary_tags, enabled_ta
             await export_variant(psd, file_name, config, next_enabled)
             await export_combinations(psd, file_name, config, secondary_tags, next_enabled)
 
+def get_least_tagged_layer(layer_map):
+    lowest = None
+    for pair in layer_map.items():
+        if lowest is None or len(pair[1]) < len(lowest[1]):
+            lowest = pair
+    return lowest
+
+def remove_tag_and_clear_cache(layer_map, tag):
+    for layer, tags in layer_map.items():
+        tags = tags.discard(tag)
+        if not tags:
+            composite.clear_all_caches(layer)
+            layer_map = layer_map.discard(layer)
+        else:
+            layer_map = layer_map.set(layer, tags)
+    return layer_map
+
 async def export_all_variants(file_name, config):
     psd = composite.PSDOpen(file_name)
 
     file_name = pathlib.Path(file_name).with_suffix(f'.{config.output_type}')
 
-    primary_tags = pset()
+    primary_layers = pmap()
     secondary_tags = pmap()
 
     for layer in psd.descendants():
@@ -126,23 +143,23 @@ async def export_all_variants(file_name, config):
             if tag.ignore:
                 continue
             if tag.xor_group is None:
-                primary_tags = primary_tags.add(tag.name)
+                s = primary_layers.get(layer, pset()).add(tag.name)
+                primary_layers = primary_layers.set(layer, s)
             else:
                 group = secondary_tags.get(tag.xor_group, pset()).add(tag.name)
                 secondary_tags = secondary_tags.set(tag.xor_group, group)
 
-    if not primary_tags:
-        primary_tags = primary_tags.add('')
+    if not primary_layers:
+        primary_layers = primary_layers.set(psd, pset(''))
 
-    primary_tags = list(primary_tags)
-    primary_tags.sort()
-    primary_tags = pvector(primary_tags)
-
-    for primary_tag in primary_tags:
+    while primary_layers:
+        _, tags = get_least_tagged_layer(primary_layers)
+        primary_tag = next(iter(tags))
         enabled = pvector([(primary_tag, None)])
         if not config.only_secondary_tags:
             await export_variant(psd, file_name, config, enabled)
         await export_combinations(psd, file_name, config, secondary_tags, enabled)
+        primary_layers = remove_tag_and_clear_cache(primary_layers, primary_tag)
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -166,6 +183,10 @@ async def main():
     parser.add_argument('--file-name', type=str, default='*.psd',
         help='PSD files to process; can use a glob pattern.')
     args = parser.parse_args()
+
+    import os
+    os.chdir("H:/art/temp")
+    args = parser.parse_args("--file 20230403.psd --out jpg".split())
 
     composite.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()

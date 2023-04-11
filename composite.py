@@ -25,8 +25,12 @@ class WrappedLayer():
         self.flat_children:list[WrappedLayer] = []
         self.clip_layers:list[WrappedLayer] = clip_layers
         self.composite_cache = {}
+        self.data_cache = {}
         self.data_cache_lock = threading.Lock()
         self.tags = []
+        self.visibility_dependency = None
+        self.tag_dependency = None
+        self.cache_miss = ''
 
         if self.layer.is_group():
             for sublayer, sub_clip_layers in get_layer_and_clip_groupings(self.layer):
@@ -35,6 +39,15 @@ class WrappedLayer():
                 self.children.append(sublayer)
                 self.flat_children.append(sublayer)
                 self.flat_children.extend(sub_clip_layers)
+
+    def layer_path(self):
+        if self.parent:
+            return self.parent.layer_path() + '/' + self.name
+        else:
+            return '/' + self.name
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.layer_path()})'
 
     def __iter__(self):
         return iter(self.children)
@@ -49,13 +62,15 @@ class WrappedLayer():
                 for subchild in child.descendants():
                     yield subchild
 
-def print_layers(layer:WrappedLayer, tab='', next_tab='  '):
-    name = layer.name
+def print_layers(layer:WrappedLayer, tab='', next_tab='  ', more_fn=None):
+    text = layer.name
     if is_clipping(layer.layer):
-        name = '* ' + name
-    print(tab, name)
+        text = f'* {text}'
+    if more_fn:
+        text = f'{text} {more_fn(layer)}'
+    print(tab, text)
     for child in reversed(layer.flat_children):
-        print_layers(child, tab + next_tab)
+        print_layers(child, tab + next_tab, next_tab, more_fn)
 
 def PSDOpen(fp, **kwargs):
     return WrappedLayer(PSDImage.open(fp, **kwargs))
@@ -115,43 +130,38 @@ def blit(dst, src, offset):
     dst, src = get_overlap_tiles(dst, src, offset)
     np.copyto(dst, src)
 
-def get_visibility_all_children(layer:WrappedLayer, visited):
-    if layer.visible:
-        visited.add(id(layer))
-    if layer.layer.is_group():
-        for sublayer in layer:
-            get_visibility_all_children(sublayer, visited)
+def get_visibility_all_children(layer:WrappedLayer, visited, visit_all):
+    if layer.visible or visit_all:
+        visited.add(layer)
+        if layer.layer.is_group():
+            for sublayer in layer.flat_children:
+                get_visibility_all_children(sublayer, visited, visit_all)
     return visited
 
-def get_visibility_dependency_sub(layer:WrappedLayer, visited):
+def get_visibility_dependency_sub(layer:WrappedLayer, visited, visit_all):
     if layer.parent == None:
         return
-    if id(layer) in visited:
+    if layer in visited:
         return
     found = False
     for sublayer in reversed(layer.parent.flat_children):
         if sublayer == layer:
             found = True
         if found:
-            if sublayer.visible:
-                get_visibility_all_children(sublayer, visited)
+            get_visibility_all_children(sublayer, visited, visit_all)
     if layer.parent.parent != None and layer.parent.layer.blend_mode == BlendMode.PASS_THROUGH:
-        get_visibility_dependency_sub(layer.parent, visited)
+        get_visibility_dependency_sub(layer.parent, visited, visit_all)
 
-def get_visibility_dependency(layer:WrappedLayer):
+def get_visibility_dependency(layer:WrappedLayer, visit_all=False):
     visited = set()
-    get_visibility_dependency_sub(layer, visited)
+    get_visibility_dependency_sub(layer, visited, visit_all)
     for sublayer in layer.clip_layers:
-        get_visibility_all_children(sublayer, visited)
+        get_visibility_all_children(sublayer, visited, visit_all)
     return frozenset(visited)
-
-def get_tile_cache(layer:WrappedLayer, offset):
-    if offset not in layer.composite_cache:
-        layer.composite_cache[offset] = {}
-    return layer.composite_cache[offset]
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
     for sublayer in layer.descendants():
+        sublayer.cache_miss = ''
         if sublayer.visible:
             sublayer.visibility_dependency = get_visibility_dependency(sublayer)
         if sublayer.custom_op is not None:
@@ -161,21 +171,45 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
             sublayer.custom_op_color = np.zeros(size + (3,))
             sublayer.custom_op_alpha = np.zeros(size + (1,))
 
+def get_tile_cache(layer:WrappedLayer, offset):
+    if offset not in layer.composite_cache:
+        layer.composite_cache[offset] = {}
+    return layer.composite_cache[offset]
+
 def get_cached_composite(layer:WrappedLayer, offset):
     return get_tile_cache(layer, offset).get(layer.visibility_dependency, None)
 
 def set_cached_composite(layer:WrappedLayer, offset, tile_data):
-    get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
+    if not layer.tag_dependency or layer.tags:
+        get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
+
+def clear_all_caches(layer:WrappedLayer):
+    layer.composite_cache.clear()
+    layer.data_cache.clear()
+    for child in layer.descendants():
+        clear_all_caches(child)
+
+def clear_safe_data_caches(layer:WrappedLayer):
+    for sublayer in layer.descendants():
+        if sublayer.tag_dependency is None:
+            v = get_visibility_dependency(sublayer, True)
+            sublayer.tag_dependency = False
+            for v_layer in v:
+                if v_layer.tags:
+                    sublayer.tag_dependency = True
+                    break
+        if not sublayer.tag_dependency:
+            sublayer.data_cache.clear()
 
 def get_cached_layer_data(layer:WrappedLayer, channel):
-    attr_name = f'cache_{channel}'
     with layer.data_cache_lock:
-        if not hasattr(layer, attr_name):
+        if channel not in layer.data_cache:
             data = layer.layer.numpy(channel)
             if data is not None:
                 data = data.astype(np.float64)
-            setattr(layer, attr_name, data)
-        return getattr(layer, attr_name)
+            layer.data_cache[channel] = data
+            return data
+        return layer.data_cache[channel]
 
 async def get_padded_data(layer:WrappedLayer, channel, size, offset, data_offset, fill=0.0):
     data = await peval(lambda: get_cached_layer_data(layer, channel))
@@ -264,14 +298,12 @@ def get_sai_special_mode_opacity(layer:Layer):
         return float(iOpa.data) / 255.0, True
     return layer.opacity / 255.0, False
 
-async def composite_group_layer(layer:WrappedLayer, size, offset, backdrop=None):
+async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
         color_dst, alpha_dst = backdrop
     else:
         color_dst = 0.0
         alpha_dst = 0.0
-
-    tile_found = False
 
     sublayer:WrappedLayer
     for sublayer in layer:
@@ -283,10 +315,12 @@ async def composite_group_layer(layer:WrappedLayer, size, offset, backdrop=None)
         cached_composite = get_cached_composite(sublayer, offset)
         if cached_composite is not None:
             color_dst, alpha_dst = cached_composite
-            tile_found = True
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
+            sublayer.cache_miss = False
             continue
+        else:
+            sublayer.cache_miss = True
 
         blend_mode = sublayer.layer.blend_mode
 
@@ -300,11 +334,10 @@ async def composite_group_layer(layer:WrappedLayer, size, offset, backdrop=None)
 
         # Empty tile, can just ignore.
         if color_src is None:
+            set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
             continue
-
-        tile_found = True
 
         # Perform custom filter over the current color_dst
         if sublayer.custom_op is not None:
@@ -343,53 +376,51 @@ async def composite_group_layer(layer:WrappedLayer, size, offset, backdrop=None)
             else:
                 color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
                 alpha_dst = await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src, out=alpha_src))
-            set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
-            continue
-
-        if sublayer.layer.is_group():
-            # Un-multiply group composites so that we can multiply group opacity correctly
-            await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
-
-        if sublayer.clip_layers:
-            # Composite the clip layers now. This basically overwrites just the color by blending onto it without
-            # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
-            # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
-            corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
-            clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
-            if clip_src is not None:
-                color_src = clip_src
-
-        # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
-        await peval(lambda: np.multiply(alpha_src, opacity, out=alpha_src))
-
-        # Now we can 'premultiply' the color_src for the main blend operation.
-        await peval(lambda: np.multiply(color_src, alpha_src, out=color_src))
-
-        # Run the blend operation.
-        blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
-        color_src = await peval(lambda: blend_func(color_dst, color_src, alpha_dst, alpha_src))
-
-        # Premultiplied blending may cause out-of-range values, so it must be clipped.
-        if blend_mode != BlendMode.NORMAL:
-            await peval(lambda: util.clip(color_src, out=color_src))
-
-        # We apply the mask last and LERP the blended result onto the destination.
-        # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
-        # will yield a slightly different result from those programs.
-        mask_src = await get_mask_data(sublayer, size, offset)
-        if mask_src is not None:
-            color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
         else:
-            color_dst = color_src
+            if sublayer.layer.is_group():
+                # Un-multiply group composites so that we can multiply group opacity correctly
+                await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
 
-        # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
-        if mask_src is not None:
-            await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
-        alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
+            if sublayer.clip_layers:
+                # Composite the clip layers now. This basically overwrites just the color by blending onto it without
+                # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
+                # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
+                corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
+                clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
+                if clip_src is not None:
+                    color_src = clip_src
+
+            # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
+            await peval(lambda: np.multiply(alpha_src, opacity, out=alpha_src))
+
+            # Now we can 'premultiply' the color_src for the main blend operation.
+            await peval(lambda: np.multiply(color_src, alpha_src, out=color_src))
+
+            # Run the blend operation.
+            blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
+            color_src = await peval(lambda: blend_func(color_dst, color_src, alpha_dst, alpha_src))
+
+            # Premultiplied blending may cause out-of-range values, so it must be clipped.
+            if blend_mode != BlendMode.NORMAL:
+                await peval(lambda: util.clip(color_src, out=color_src))
+
+            # We apply the mask last and LERP the blended result onto the destination.
+            # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
+            # will yield a slightly different result from those programs.
+            mask_src = await get_mask_data(sublayer, size, offset)
+            if mask_src is not None:
+                color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
+            else:
+                color_dst = color_src
+
+            # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
+            if mask_src is not None:
+                await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
+            alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
 
         set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
 
-    if not tile_found:
+    if np.isscalar(color_dst):
         return None, None
 
     return color_dst, alpha_dst
@@ -438,7 +469,10 @@ async def composite(psd:WrappedLayer, tile_size=(256,256)):
         tasks.append(composite_tile(psd, tile_size, tile_offset, color, alpha))
 
     set_layer_extra_data(psd, len(tasks), size)
+    clear_safe_data_caches(psd)
 
     await asyncio.gather(*tasks)
+
+    #print_layers(psd, more_fn=(lambda l: (l.cache_miss, bool(l.composite_cache))))
 
     return color, alpha
