@@ -30,7 +30,7 @@ class WrappedLayer():
         self.tags = []
         self.visibility_dependency = None
         self.tag_dependency = None
-        self.cache_miss = ''
+        self.cache_hit = ''
 
         if self.layer.is_group():
             for sublayer, sub_clip_layers in get_layer_and_clip_groupings(self.layer):
@@ -161,7 +161,7 @@ def get_visibility_dependency(layer:WrappedLayer, visit_all=False):
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
     for sublayer in layer.descendants():
-        sublayer.cache_miss = ''
+        sublayer.cache_hit = ''
         if sublayer.visible:
             sublayer.visibility_dependency = get_visibility_dependency(sublayer)
         if sublayer.custom_op is not None:
@@ -186,8 +186,27 @@ def set_cached_composite(layer:WrappedLayer, offset, tile_data):
 def clear_all_caches(layer:WrappedLayer):
     layer.composite_cache.clear()
     layer.data_cache.clear()
-    for child in layer.descendants():
-        clear_all_caches(child)
+    for sublayer in layer.descendants():
+        sublayer.composite_cache.clear()
+        layer.data_cache.clear()
+
+def clear_descendants_composite_cache(layer:WrappedLayer):
+    for sublayer in layer.descendants():
+        sublayer.composite_cache.clear()
+
+def set_cache_skips(layer:WrappedLayer):
+    for sub_cache in layer.composite_cache.values():
+        for k in sub_cache.keys():
+            sub_cache[k] = CACHE_SKIP
+
+def set_cache_skip_to_last_untagged(layer:WrappedLayer):
+    skip = False
+    for child in reversed(layer.children):
+        if not child.tag_dependency and not skip:
+            skip = True
+            continue
+        if skip:
+            set_cache_skips(child)
 
 def clear_safe_data_caches(layer:WrappedLayer):
     for sublayer in layer.descendants():
@@ -200,6 +219,9 @@ def clear_safe_data_caches(layer:WrappedLayer):
                     break
         if not sublayer.tag_dependency:
             sublayer.data_cache.clear()
+            clear_descendants_composite_cache(sublayer)
+    for sublayer in layer.descendants():
+        set_cache_skip_to_last_untagged(sublayer)
 
 def get_cached_layer_data(layer:WrappedLayer, channel):
     with layer.data_cache_lock:
@@ -298,6 +320,8 @@ def get_sai_special_mode_opacity(layer:Layer):
         return float(iOpa.data) / 255.0, True
     return layer.opacity / 255.0, False
 
+CACHE_SKIP = object()
+
 async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
         color_dst, alpha_dst = backdrop
@@ -314,13 +338,16 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
         cached_composite = get_cached_composite(sublayer, offset)
         if cached_composite is not None:
-            color_dst, alpha_dst = cached_composite
+            if cached_composite is not CACHE_SKIP:
+                color_dst, alpha_dst = cached_composite
+                sublayer.cache_hit = True
+            else:
+                sublayer.cache_hit = 'SKIP'
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
-            sublayer.cache_miss = False
             continue
         else:
-            sublayer.cache_miss = True
+            sublayer.cache_hit = False
 
         blend_mode = sublayer.layer.blend_mode
 
@@ -469,10 +496,9 @@ async def composite(psd:WrappedLayer, tile_size=(256,256)):
         tasks.append(composite_tile(psd, tile_size, tile_offset, color, alpha))
 
     set_layer_extra_data(psd, len(tasks), size)
-    clear_safe_data_caches(psd)
 
     await asyncio.gather(*tasks)
 
-    #print_layers(psd, more_fn=(lambda l: (l.cache_miss, bool(l.composite_cache))))
+    clear_safe_data_caches(psd)
 
     return color, alpha
