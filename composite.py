@@ -327,128 +327,124 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
     sublayer:WrappedLayer
     for sublayer in layer:
-        def delete_cache_check():
+        try:
+            if not sublayer.visible or sublayer.skip:
+                if sublayer.custom_op is not None:
+                    await barrier_skip(sublayer.custom_op_barrier)
+                continue
+
+            cached_composite = get_cached_composite(sublayer, offset)
+            if cached_composite is not None:
+                color_dst, alpha_dst = cached_composite
+                sublayer.cache_hit = True
+                if sublayer.custom_op is not None:
+                    await barrier_skip(sublayer.custom_op_barrier)
+                continue
+            else:
+                sublayer.cache_hit = False
+
+            blend_mode = sublayer.layer.blend_mode
+
+            if sublayer.layer.is_group():
+                next_backdrop = None
+                if blend_mode == BlendMode.PASS_THROUGH:
+                    next_backdrop = (color_dst, alpha_dst)
+                color_src, alpha_src = await composite_group_layer(sublayer, size, offset, next_backdrop)
+            else:
+                color_src, alpha_src = await get_pixel_layer_data(sublayer, size, offset)
+
+            # Empty tile, can just ignore.
+            if color_src is None:
+                set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
+                if sublayer.custom_op is not None:
+                    await barrier_skip(sublayer.custom_op_barrier)
+                continue
+
+            # Perform custom filter over the current color_dst
+            if sublayer.custom_op is not None:
+                if not np.isscalar(color_dst):
+                    await peval(lambda: blit(sublayer.custom_op_color, color_dst, offset))
+                    await peval(lambda: blit(sublayer.custom_op_alpha, alpha_src, offset))
+                await sublayer.custom_op_barrier.wait()
+                if not sublayer.custom_op_condition.locked():
+                    if not sublayer.custom_op_finished:
+                        async with sublayer.custom_op_condition:
+                            sublayer.custom_op_color, sublayer.custom_op_alpha = \
+                                await peval(lambda: sublayer.custom_op(sublayer.custom_op_color, sublayer.custom_op_alpha))
+                            sublayer.custom_op_finished = True
+                            sublayer.custom_op_condition.notify_all()
+                else:
+                    async with sublayer.custom_op_condition:
+                        await sublayer.custom_op_condition.wait_for(lambda: sublayer.custom_op_finished)
+                neg_offset = -np.array(offset)
+                await peval(lambda: blit(color_src, sublayer.custom_op_color, neg_offset))
+                await peval(lambda: blit(alpha_src, sublayer.custom_op_alpha, neg_offset))
+
+            # Opacity is actually FILL when special mode is true!
+            opacity, special_mode = get_sai_special_mode_opacity(sublayer.layer)
+
+            # A pass-through layer has already been blended, so just lerp instead.
+            # NOTE: Clipping layers do not apply to pass layers, as if clipping were simply disabled.
+            if blend_mode == BlendMode.PASS_THROUGH:
+                mask_src = await get_mask_data(sublayer.layer, size, offset)
+                if mask_src is None:
+                    mask_src = opacity
+                else:
+                    await peval(lambda: np.multiply(mask_src, opacity, out=mask_src))
+                if np.isscalar(mask_src) and mask_src == 1.0:
+                    color_dst = color_src
+                    alpha_dst = alpha_src
+                else:
+                    color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
+                    alpha_dst = await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src, out=alpha_src))
+            else:
+                if sublayer.layer.is_group():
+                    # Un-multiply group composites so that we can multiply group opacity correctly
+                    await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
+
+                if sublayer.clip_layers:
+                    # Composite the clip layers now. This basically overwrites just the color by blending onto it without
+                    # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
+                    # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
+                    corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
+                    clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
+                    if clip_src is not None:
+                        color_src = clip_src
+
+                # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
+                await peval(lambda: np.multiply(alpha_src, opacity, out=alpha_src))
+
+                # Now we can 'premultiply' the color_src for the main blend operation.
+                await peval(lambda: np.multiply(color_src, alpha_src, out=color_src))
+
+                # Run the blend operation.
+                blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
+                color_src = await peval(lambda: blend_func(color_dst, color_src, alpha_dst, alpha_src))
+
+                # Premultiplied blending may cause out-of-range values, so it must be clipped.
+                if blend_mode != BlendMode.NORMAL:
+                    await peval(lambda: util.clip(color_src, out=color_src))
+
+                # We apply the mask last and LERP the blended result onto the destination.
+                # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
+                # will yield a slightly different result from those programs.
+                mask_src = await get_mask_data(sublayer, size, offset)
+                if mask_src is not None:
+                    color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
+                else:
+                    color_dst = color_src
+
+                # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
+                if mask_src is not None:
+                    await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
+                alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
+
+            set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
+        finally:
             sublayer.worker_counter -= 1
             if sublayer.worker_counter == 0 and not sublayer.tag_dependency:
                 sublayer.data_cache.clear()
                 clear_descendants_composite_cache(sublayer)
-
-        if not sublayer.visible or sublayer.skip:
-            if sublayer.custom_op is not None:
-                await barrier_skip(sublayer.custom_op_barrier)
-            delete_cache_check()
-            continue
-
-        cached_composite = get_cached_composite(sublayer, offset)
-        if cached_composite is not None:
-            color_dst, alpha_dst = cached_composite
-            sublayer.cache_hit = True
-            if sublayer.custom_op is not None:
-                await barrier_skip(sublayer.custom_op_barrier)
-            delete_cache_check()
-            continue
-        else:
-            sublayer.cache_hit = False
-
-        blend_mode = sublayer.layer.blend_mode
-
-        if sublayer.layer.is_group():
-            next_backdrop = None
-            if blend_mode == BlendMode.PASS_THROUGH:
-                next_backdrop = (color_dst, alpha_dst)
-            color_src, alpha_src = await composite_group_layer(sublayer, size, offset, next_backdrop)
-        else:
-            color_src, alpha_src = await get_pixel_layer_data(sublayer, size, offset)
-
-        # Empty tile, can just ignore.
-        if color_src is None:
-            set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
-            if sublayer.custom_op is not None:
-                await barrier_skip(sublayer.custom_op_barrier)
-            delete_cache_check()
-            continue
-
-        # Perform custom filter over the current color_dst
-        if sublayer.custom_op is not None:
-            if not np.isscalar(color_dst):
-                await peval(lambda: blit(sublayer.custom_op_color, color_dst, offset))
-                await peval(lambda: blit(sublayer.custom_op_alpha, alpha_src, offset))
-            await sublayer.custom_op_barrier.wait()
-            if not sublayer.custom_op_condition.locked():
-                if not sublayer.custom_op_finished:
-                    async with sublayer.custom_op_condition:
-                        sublayer.custom_op_color, sublayer.custom_op_alpha = \
-                            await peval(lambda: sublayer.custom_op(sublayer.custom_op_color, sublayer.custom_op_alpha))
-                        sublayer.custom_op_finished = True
-                        sublayer.custom_op_condition.notify_all()
-            else:
-                async with sublayer.custom_op_condition:
-                    await sublayer.custom_op_condition.wait_for(lambda: sublayer.custom_op_finished)
-            neg_offset = -np.array(offset)
-            await peval(lambda: blit(color_src, sublayer.custom_op_color, neg_offset))
-            await peval(lambda: blit(alpha_src, sublayer.custom_op_alpha, neg_offset))
-
-        # Opacity is actually FILL when special mode is true!
-        opacity, special_mode = get_sai_special_mode_opacity(sublayer.layer)
-
-        # A pass-through layer has already been blended, so just lerp instead.
-        # NOTE: Clipping layers do not apply to pass layers, as if clipping were simply disabled.
-        if blend_mode == BlendMode.PASS_THROUGH:
-            mask_src = await get_mask_data(sublayer.layer, size, offset)
-            if mask_src is None:
-                mask_src = opacity
-            else:
-                await peval(lambda: np.multiply(mask_src, opacity, out=mask_src))
-            if np.isscalar(mask_src) and mask_src == 1.0:
-                color_dst = color_src
-                alpha_dst = alpha_src
-            else:
-                color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
-                alpha_dst = await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src, out=alpha_src))
-        else:
-            if sublayer.layer.is_group():
-                # Un-multiply group composites so that we can multiply group opacity correctly
-                await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
-
-            if sublayer.clip_layers:
-                # Composite the clip layers now. This basically overwrites just the color by blending onto it without
-                # alpha blending it first. For whatever reason, applying a large root to the alpha source before passing
-                # it to clip compositing fixes brightening that can occur with certain blend modes (like multiply).
-                corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
-                clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
-                if clip_src is not None:
-                    color_src = clip_src
-
-            # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
-            await peval(lambda: np.multiply(alpha_src, opacity, out=alpha_src))
-
-            # Now we can 'premultiply' the color_src for the main blend operation.
-            await peval(lambda: np.multiply(color_src, alpha_src, out=color_src))
-
-            # Run the blend operation.
-            blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
-            color_src = await peval(lambda: blend_func(color_dst, color_src, alpha_dst, alpha_src))
-
-            # Premultiplied blending may cause out-of-range values, so it must be clipped.
-            if blend_mode != BlendMode.NORMAL:
-                await peval(lambda: util.clip(color_src, out=color_src))
-
-            # We apply the mask last and LERP the blended result onto the destination.
-            # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
-            # will yield a slightly different result from those programs.
-            mask_src = await get_mask_data(sublayer, size, offset)
-            if mask_src is not None:
-                color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
-            else:
-                color_dst = color_src
-
-            # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
-            if mask_src is not None:
-                await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
-            alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
-
-        set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
-        delete_cache_check()
 
     if np.isscalar(color_dst):
         return None, None
