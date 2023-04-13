@@ -489,14 +489,12 @@ async def composite(psd:WrappedLayer, tile_size=(256,256)):
     color = np.zeros(size + (3,))
     alpha = np.zeros(size + (1,))
 
-    tasks = []
+    tiles = list(generate_tiles(size, tile_size))
+    set_layer_extra_data(psd, len(tiles), size)
 
-    for (tile_size, tile_offset) in generate_tiles(size, tile_size):
-        tasks.append(composite_tile(psd, tile_size, tile_offset, color, alpha))
-
-    set_layer_extra_data(psd, len(tasks), size)
-
-    await asyncio.gather(*tasks)
+    async with asyncio.TaskGroup() as tg:
+        for (tile_size, tile_offset) in tiles:
+            tg.create_task(composite_tile(psd, tile_size, tile_offset, color, alpha))
 
     set_skips(psd)
 
