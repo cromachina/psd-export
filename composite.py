@@ -386,7 +386,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             # A pass-through layer has already been blended, so just lerp instead.
             # NOTE: Clipping layers do not apply to pass layers, as if clipping were simply disabled.
             if blend_mode == BlendMode.PASS_THROUGH:
-                mask_src = await get_mask_data(sublayer.layer, size, offset)
+                mask_src = await get_mask_data(sublayer, size, offset)
                 if mask_src is None:
                     mask_src = opacity
                 else:
