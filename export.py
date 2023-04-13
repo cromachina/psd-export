@@ -132,6 +132,13 @@ def remove_tag_and_clear_cache(layer_map, tag):
             layer_map = layer_map.set(layer, tags)
     return layer_map
 
+def is_reachable(layer:composite.WrappedLayer):
+    while layer is not None:
+        if not layer.tags and not layer.visible:
+            return False
+        layer = layer.parent
+    return True
+
 async def export_all_variants(file_name, config):
     psd = composite.PSDOpen(file_name)
 
@@ -143,7 +150,11 @@ async def export_all_variants(file_name, config):
     for layer in psd.descendants():
         tags = parse_tags(layer.name)
         layer.tags = tags
-        for tag in tags:
+
+    for layer in psd.descendants():
+        if not is_reachable(layer):
+            continue
+        for tag in layer.tags:
             if tag.ignore:
                 continue
             if tag.xor_group is None:
