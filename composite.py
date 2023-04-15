@@ -101,9 +101,7 @@ def mosaic_op(color, alpha, mosaic_factor=None, *_):
 
 def blur_op(color, alpha, size=50, *_):
     size = int(size)
-    if size % 2 == 0:
-        size += 1
-    return cv2.GaussianBlur(color, (size, size), size), alpha
+    return cv2.GaussianBlur(color, (0, 0), size, dst=color, borderType=cv2.BORDER_REPLICATE), alpha
 
 def chain_ops(ops):
     if not ops:
