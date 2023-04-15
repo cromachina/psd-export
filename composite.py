@@ -103,6 +103,17 @@ def blur_op(color, alpha, size=50, *_):
     size = float(size)
     return cv2.GaussianBlur(color, (0, 0), size, dst=color, borderType=cv2.BORDER_REPLICATE), alpha
 
+def motion_blur_op(color, alpha, angle=0, size=50, *_):
+    angle = float(angle)
+    size = int(size)
+    kernel = np.zeros((size, size))
+    kernel[(size - 1) // 2] = 1
+    rotation = cv2.getRotationMatrix2D((size / 2, size / 2), np.degrees(angle), 1.0)
+    kernel = cv2.warpAffine(kernel, rotation, (size, size))
+    kernel *= (1.0 / np.sum(kernel))
+    color = cv2.filter2D(color, -1, kernel)
+    return color, alpha
+
 def chain_ops(ops):
     if not ops:
         return None

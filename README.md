@@ -56,6 +56,10 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 - `[blur size]`
   - The `size` argument defaults to 50 if omitted.
   - This filter is best used to create a non-destructive blur, such as for a background layer. You can fill an entire layer and set it to `[#blur 8]` for example.
+- `[motion-blur angle size]`
+  - `angle` is in degrees, starting from horizontal to the right; Default 0.
+  - `size` defaults to 50.
+  - Best used for non-destructive blur: `[#motion-blur 45 20]`
 
 ##### Adding a new filter:
 A filter function should take the form of:

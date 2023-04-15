@@ -47,6 +47,7 @@ def parse_tag(tag:str):
 filter_names = {
     'censor': composite.mosaic_op,
     'blur': composite.blur_op,
+    'motion-blur': composite.motion_blur_op,
 }
 
 def parse_tags(input):
