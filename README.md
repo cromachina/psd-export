@@ -85,11 +85,11 @@ Apply it to a layer, for example:
 - Command argument names can be partially entered, for example `--subfolders` can be written `--sub` or `--s`, if it's unambiguous.
 ---
 ### Examples
-In the layers below, there are 4 primary tags and 4 secondary tags (with two unique exclusion groups):
+In the layers below, there are 2 primary tags and 3 secondary tags (with two unique exclusion groups):
 
-Primary tags: `1`, `2`, `3`, `4`
+Primary tags: `1`, `2`
 
-Secondary tags: `jp`, `en`, `hearts`, `censor`
+Secondary tags: `jp`, `en`, `censor`
 
 Exclusion groups: `text`, `<empty>`
 
@@ -97,23 +97,23 @@ Groups with primary tags will be exported again even if the secondary tag does n
 
 Example layer configuration in SAI:
 
-![image](https://user-images.githubusercontent.com/82557197/194391407-cc3dc945-24f9-4a28-be0c-6e579e432317.png)
+![image](https://user-images.githubusercontent.com/82557197/232172462-a52cf239-0adc-4ad0-9601-8d6d79fd158d.png)
 
 Example output from script, showing every valid combination:
 
-![image](https://user-images.githubusercontent.com/82557197/194395531-133e1650-d81f-4d27-9e23-36b2171e9ea2.png)
+![image](https://user-images.githubusercontent.com/82557197/232172483-20d1089f-6ccf-46f4-96ed-4651d9e7b1e7.png)
 
 Folder after exporting everything:
 
-![image](https://user-images.githubusercontent.com/82557197/194395730-d0c4a7b4-e332-4050-9a8b-2dec8cf1c9ce.png)
+![image](https://user-images.githubusercontent.com/82557197/232172514-39985f21-b5ac-4f63-9be6-483355dada4b.png)
 
 Example of a layer with the tag `[censor@]` (the layer does not need to be set to visible before exporting):
 
-<img src="https://user-images.githubusercontent.com/82557197/194396108-6a1fa5f5-b311-43b2-959f-a999f69655af.png" width="500">
+![image](https://user-images.githubusercontent.com/82557197/232172599-7146521c-f539-4753-81ec-f21d4eb98aa9.png)
 
 After exporting:
 
-<img src="https://user-images.githubusercontent.com/82557197/194396262-0c2c3879-fa65-40a3-bc87-f0ddd779dd26.png" width="500">
+![image](https://user-images.githubusercontent.com/82557197/232172637-4b4e397c-53cb-4449-8525-bca0603d9ec1.png)
 
 ---
 ### Blendmode status:
