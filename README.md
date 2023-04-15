@@ -64,6 +64,9 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 ##### Adding a new filter:
 A filter function should take the form of:
 ```py
+import filters
+# Register the filter with this decorator
+@filters.filter('my-filter')
 # Only positional arguments work right now.
 def some_filter(color, alpha, arg1=default1, arg2=default2, ..., *_):
     # Cast arguments to your desired types, as they will come in as strings.
@@ -71,11 +74,6 @@ def some_filter(color, alpha, arg1=default1, arg2=default2, ..., *_):
     # Manipulate color and alpha numpy arrays, in-place if you want.
     # Always return the same shaped arrays as a tuple:
     return color, alpha
-```
-
-Add it to the filter lookup dictionary:
-```py
-export.filter_names['my-filter'] = some_filter
 ```
 
 Apply it to a layer, for example:

@@ -11,6 +11,7 @@ import cv2
 from pyrsistent import pmap, pset, pvector
 
 import composite
+import filters
 import util
 
 class Tag(NamedTuple):
@@ -44,12 +45,6 @@ def parse_tag(tag:str):
             args[1:]
         )
 
-filter_names = {
-    'censor': composite.mosaic_op,
-    'blur': composite.blur_op,
-    'motion-blur': composite.motion_blur_op,
-}
-
 def parse_tags(input):
     return [parse_tag(tag) for tag in tag_regex.findall(input)]
 
@@ -82,7 +77,7 @@ async def export_variant(psd, file_name, config, enabled_tags):
     for layer in psd.descendants():
         custom_ops = []
         def add_op(tag):
-            custom_op = filter_names.get(tag.name)
+            custom_op = filters.get_filter(tag.name)
             if custom_op:
                 custom_ops.append(lambda c, a: custom_op(c, a, *tag.args))
 
@@ -95,7 +90,7 @@ async def export_variant(psd, file_name, config, enabled_tags):
             elif (tag.name, tag.xor_group) in enabled_tags:
                 layer.visible = True
                 add_op(tag)
-        layer.custom_op = composite.chain_ops(custom_ops)
+        layer.custom_op = filters.compose_ops(custom_ops)
 
     image = await composite.composite(psd)
 

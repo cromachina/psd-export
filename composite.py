@@ -83,46 +83,6 @@ async def barrier_skip(barrier:asyncio.Barrier):
     except TimeoutError:
         pass
 
-def mosaic_image(image, mosaic_factor):
-    original_size = util.swap(image.shape[:2])
-    min_dim = min(original_size) // mosaic_factor
-    min_dim = max(4, min_dim)
-    scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
-    mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
-    return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
-
-mosaic_factor_default = 100
-
-def mosaic_op(color, alpha, mosaic_factor=None, *_):
-    if mosaic_factor is None:
-        mosaic_factor = mosaic_factor_default
-    mosaic_factor = int(mosaic_factor)
-    return mosaic_image(color, mosaic_factor), alpha
-
-def blur_op(color, alpha, size=50, *_):
-    size = float(size)
-    return cv2.GaussianBlur(color, (0, 0), size, dst=color, borderType=cv2.BORDER_REPLICATE), alpha
-
-def motion_blur_op(color, alpha, angle=0, size=50, *_):
-    angle = float(angle)
-    size = int(size)
-    kernel = np.zeros((size, size))
-    kernel[(size - 1) // 2] = 1
-    rotation = cv2.getRotationMatrix2D((size / 2, size / 2), np.degrees(angle), 1.0)
-    kernel = cv2.warpAffine(kernel, rotation, (size, size))
-    kernel *= (1.0 / np.sum(kernel))
-    color = cv2.filter2D(color, -1, kernel)
-    return color, alpha
-
-def chain_ops(ops):
-    if not ops:
-        return None
-    def c(color, alpha):
-        for op in ops:
-            color, alpha = op(color, alpha)
-        return color, alpha
-    return c
-
 def get_overlap_tiles(dst, src, offset):
     ox, oy = offset
     dx, dy = dst.shape[:2]
