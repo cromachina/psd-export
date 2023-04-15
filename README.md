@@ -11,7 +11,9 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 ---
 ### Installation
 - Install python: https://www.python.org/downloads/
-- Run `pip install -r requirements.txt` to install dependencies.
+- Run `pip install psd-export` to install the script.
+- Run `psd-export` to export any PSD files in the current directory.
+- Run `psd-export --help` for more command line arguments.
 
 ---
 ### Setting up the PSD
@@ -62,29 +64,40 @@ For my art workflow, I typically make a bunch variation layers and also need to 
   - Best used for non-destructive blur: `[#motion-blur 45 20]`
 
 ##### Adding a new filter:
-A filter function should take the form of:
+In your own script:
 ```py
-import filters
-# Register the filter with this decorator
+# my-export.py
+from psd_export import (export, filters)
+import numpy as np
+
+my_arg1_default = 1.0
+
+# Register the filter with this decorator:
 @filters.filter('my-filter')
 # Only positional arguments work right now.
-def some_filter(color, alpha, arg1=default1, arg2=default2, ..., *_):
+def some_filter(color, alpha, arg1=None, arg2=100, *_):
     # Cast arguments to your desired types, as they will come in as strings.
+    if arg1 is None:
+        arg1 = my_arg1_default
     arg1 = float(arg1)
     # Manipulate color and alpha numpy arrays, in-place if you want.
+    color = np.subtract(arg1, color, out=color)
     # Always return the same shaped arrays as a tuple:
     return color, alpha
+
+if __name__ == '__main__':
+    # Add your own command line arguments if needed.
+    export.arg_parser.add_argument('--my-arg1', default=my_arg1_default, type=float,
+        help='Set the arg1 default parameter.')
+    args = export.arg_parser.parse_args()
+    my_arg1_default = args.my_arg1
+
+    export.main()
 ```
 
-Apply it to a layer, for example:
+Apply it to a layer in your PSD, for example:
 `[my-filter 20.4]` or `[#my-filter]`, etc.
 
----
-### Running
-- Run `export.py --file-name some-picture.psd` to run the export process.
-- You can omit the file name and it will default to `*.psd` and try to export all PSD files in the current directory.
-- Run `export.py --h` to see a list of arguments and their behaviors.
-- Command argument names can be partially entered, for example `--subfolders` can be written `--sub` or `--s`, if it's unambiguous.
 ---
 ### Examples
 In the layers below, there are 2 primary tags and 3 secondary tags (with two unique exclusion groups):
@@ -119,7 +132,7 @@ After exporting:
 
 ---
 ### Blendmode status:
-| Blendmode | Issue |
+| Blendmode | Status |
 | - | - |
 | Normal | Pass |
 | Multiply | Pass |

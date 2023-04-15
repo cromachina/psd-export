@@ -10,9 +10,9 @@ from psd_tools import PSDImage
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
 
-import blendfuncs
-import util
-from util import peval
+from . import blendfuncs
+from . import util
+from .util import peval
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):

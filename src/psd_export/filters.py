@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-import util
+from . import util
 
 filter_names = {}
 

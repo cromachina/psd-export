@@ -2,7 +2,7 @@ import numpy as np
 from psd_tools.composite import blend
 from psd_tools.constants import BlendMode
 
-import util
+from . import util
 
 # https://dev.w3.org/SVG/modules/compositing/master/
 # http://ssp.impulsetrain.com/porterduff.html

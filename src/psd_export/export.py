@@ -10,9 +10,9 @@ from typing import NamedTuple
 import cv2
 from pyrsistent import pmap, pset, pvector
 
-import composite
-import filters
-import util
+from . import composite
+from . import filters
+from . import util
 
 class Tag(NamedTuple):
     ignore: bool
@@ -172,35 +172,38 @@ async def export_all_variants(file_name, config):
         await export_combinations(psd, file_name, config, secondary_tags, enabled)
         primary_layers = remove_tag_and_clear_cache(primary_layers, primary_tag)
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
-        help='Export secondary tags to subfolders.')
-    parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=False,
-        help='Make primary tags into subfolders.')
-    parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, default=False,
-        help='Show what files would have been exported, but do not actually export anything.')
-    parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
-        help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
-    parser.add_argument('--mosaic-factor', default=100, type=float,
-        help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
-    parser.add_argument('--png-compression', default=1, type=int,
-        help='Set the compression level for PNG output (0 to 9).')
-    parser.add_argument('--jpg-quality', default=95, type=int,
-        help='Set the quality level for JPG output (0 to 100).')
-    parser.add_argument('--output-type', type=str, default='png',
-        help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
-    parser.add_argument('--file-name', type=str, default='*.psd',
-        help='PSD files to process; can use a glob pattern.')
-    args = parser.parse_args()
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
+    help='Export secondary tags to subfolders.')
+arg_parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=False,
+    help='Make primary tags into subfolders.')
+arg_parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, default=False,
+    help='Show what files would have been exported, but do not actually export anything.')
+arg_parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
+    help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
+arg_parser.add_argument('--mosaic-factor', default=filters.mosaic_factor_default, type=float,
+    help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
+arg_parser.add_argument('--png-compression', default=1, type=int,
+    help='Set the compression level for PNG output (0 to 9).')
+arg_parser.add_argument('--jpg-quality', default=95, type=int,
+    help='Set the quality level for JPG output (0 to 100).')
+arg_parser.add_argument('--output-type', type=str, default='png',
+    help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
+arg_parser.add_argument('--file-name', type=str, default='*.psd',
+    help='PSD files to process; can use a glob pattern.')
 
-    composite.mosaic_factor_default = args.mosaic_factor
+async def async_main():
+    logging.basicConfig(level=logging.INFO)
+    args = arg_parser.parse_args()
+    filters.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     for file_name in glob.iglob(args.file_name):
         await export_all_variants(file_name, args)
     await util.save_workers_wait_all()
     logging.info(f'export time: {time.perf_counter() - start}')
 
+def main():
+    asyncio.run(async_main())
+
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
