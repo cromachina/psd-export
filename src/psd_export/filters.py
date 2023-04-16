@@ -12,7 +12,7 @@ def filter(name):
     return wrap
 
 def get_filter(name):
-    return filter_names[name]
+    return filter_names.get(name, None)
 
 def compose_ops(ops):
     if not ops:
