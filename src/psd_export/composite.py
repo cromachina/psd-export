@@ -327,6 +327,9 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
                 if sublayer.custom_op is not None:
                     await barrier_skip(sublayer.custom_op_barrier)
+                # Need to enter the clip layers to make sure any barriers are hit.
+                if sublayer.clip_layers:
+                    await composite_group_layer(sublayer.clip_layers, size, offset)
                 continue
 
             # Perform custom filter over the current color_dst
