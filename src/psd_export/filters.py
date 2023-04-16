@@ -23,7 +23,7 @@ def compose_ops(ops):
         return color, alpha
     return c
 
-def mosaic_image(image, mosaic_factor):
+def mosaic(image, mosaic_factor):
     original_size = util.swap(image.shape[:2])
     min_dim = min(original_size) // mosaic_factor
     min_dim = max(4, min_dim)
@@ -34,25 +34,36 @@ def mosaic_image(image, mosaic_factor):
 mosaic_factor_default = 100
 
 @filter('censor')
-def mosaic_op(color, alpha, mosaic_factor=None, *_):
+def mosaic_op(color, alpha, mosaic_factor=None, apply_to_alpha=False, *_):
     if mosaic_factor is None:
         mosaic_factor = mosaic_factor_default
     mosaic_factor = int(mosaic_factor)
-    return mosaic_image(color, mosaic_factor), alpha
+    color = mosaic(color, mosaic_factor)
+    if apply_to_alpha:
+        alpha = mosaic(alpha, mosaic_factor)
+    return color, alpha
 
 @filter('blur')
-def blur_op(color, alpha, size=50, *_):
+def blur_op(color, alpha, size=50, apply_to_alpha=False, *_):
     size = float(size)
-    return cv2.GaussianBlur(color, (0, 0), size, dst=color, borderType=cv2.BORDER_REPLICATE), alpha
+    color = cv2.GaussianBlur(color, ksize=(0, 0), sigmaX=size, dst=color, borderType=cv2.BORDER_REPLICATE)
+    if apply_to_alpha:
+        alpha = cv2.GaussianBlur(alpha, ksize=(0, 0), sigmaX=size, dst=alpha, borderType=cv2.BORDER_REPLICATE)
+    return color, alpha
 
-@filter('motion-blur')
-def motion_blur_op(color, alpha, angle=0, size=50, *_):
-    angle = float(angle)
-    size = int(size)
+def motion_blur(data, angle, size):
     kernel = np.zeros((size, size))
     kernel[(size - 1) // 2] = 1
     rotation = cv2.getRotationMatrix2D((size / 2, size / 2), np.degrees(angle), 1.0)
     kernel = cv2.warpAffine(kernel, rotation, (size, size))
     kernel *= (1.0 / np.sum(kernel))
-    color = cv2.filter2D(color, -1, kernel)
+    return cv2.filter2D(data, -1, kernel)
+
+@filter('motion-blur')
+def motion_blur_op(color, alpha, angle=0, size=50, apply_to_alpha=False, *_):
+    angle = float(angle)
+    size = int(size)
+    color = motion_blur(color, angle, size)
+    if apply_to_alpha:
+        alpha = motion_blur(alpha, angle, size).reshape(alpha.shape)
     return color, alpha
