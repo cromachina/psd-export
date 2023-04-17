@@ -103,10 +103,11 @@ def blit(dst, src, offset):
 
 def get_visibility_all_children(layer:WrappedLayer, visited, visit_all):
     if layer.visible or visit_all:
-        visited.add(layer)
-        if layer.layer.is_group():
-            for sublayer in layer.flat_children:
-                get_visibility_all_children(sublayer, visited, visit_all)
+        tags = [not tag.ignore for tag in layer.tags]
+        if any(tags):
+            visited.add(layer)
+        for sublayer in layer.flat_children:
+            get_visibility_all_children(sublayer, visited, visit_all)
     return visited
 
 def get_visibility_dependency_sub(layer:WrappedLayer, visited, visit_all):
@@ -126,8 +127,6 @@ def get_visibility_dependency_sub(layer:WrappedLayer, visited, visit_all):
 def get_visibility_dependency(layer:WrappedLayer, visit_all=False):
     visited = set()
     get_visibility_dependency_sub(layer, visited, visit_all)
-    for sublayer in layer.clip_layers:
-        get_visibility_all_children(sublayer, visited, visit_all)
     return frozenset(visited)
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
@@ -135,8 +134,7 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
     for sublayer in layer.descendants():
         sublayer.worker_counter = tile_count
         sublayer.cache_hit = ''
-        if sublayer.visible:
-            sublayer.visibility_dependency = get_visibility_dependency(sublayer)
+        sublayer.visibility_dependency = get_visibility_dependency(sublayer)
         if sublayer.custom_op is not None:
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
             sublayer.custom_op_condition = asyncio.Condition()
@@ -173,7 +171,8 @@ def set_tag_dependency(layer:WrappedLayer):
             v = get_visibility_dependency(sublayer, True)
             sublayer.tag_dependency = False
             for v_layer in v:
-                if v_layer.tags:
+                tags = [not tag.ignore for tag in v_layer.tags]
+                if any(tags):
                     sublayer.tag_dependency = True
                     break
 
