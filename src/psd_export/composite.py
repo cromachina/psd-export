@@ -184,6 +184,8 @@ def set_skip_to_last_untagged(layer:WrappedLayer):
             continue
         if skip and child.composite_cache:
             child.skip = True
+            child.data_cache.clear()
+            child.composite_cache.clear()
 
 def set_skips(layer:WrappedLayer):
     for sublayer in layer.descendants():
