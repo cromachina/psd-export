@@ -151,8 +151,7 @@ def get_cached_composite(layer:WrappedLayer, offset):
     return get_tile_cache(layer, offset).get(layer.visibility_dependency, None)
 
 def set_cached_composite(layer:WrappedLayer, offset, tile_data):
-    if not layer.tag_dependency or layer.tags:
-        get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
+    get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
 
 def clear_all_caches(layer:WrappedLayer):
     layer.composite_cache.clear()
