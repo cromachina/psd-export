@@ -424,13 +424,15 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
     return color_dst, alpha_dst
 
 debug_path = pathlib.Path('')
+debug_run = 0
 
 def debug_layer(name, offset, data):
+    data = (data * 255).astype(np.uint8)
     if data.shape[2] == 1:
         data = data.reshape(data.shape[:2])
-    data = (data * 255).astype(np.uint8)
-    data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
-    path = debug_path / f'{name}-{offset}.png'
+    else:
+        data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
+    path = debug_path /  f'{name}-{offset}-{debug_run}.png'
     cv2.imwrite(str(path), data)
 
 async def composite_tile(psd:WrappedLayer, size, offset, color, alpha):
