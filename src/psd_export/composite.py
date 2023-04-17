@@ -151,6 +151,9 @@ def get_cached_composite(layer:WrappedLayer, offset):
     return get_tile_cache(layer, offset).get(layer.visibility_dependency, None)
 
 def set_cached_composite(layer:WrappedLayer, offset, tile_data):
+    for data in tile_data:
+        if not np.isscalar(data):
+            data.flags.writeable = False
     get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
 
 def clear_all_caches(layer:WrappedLayer):
