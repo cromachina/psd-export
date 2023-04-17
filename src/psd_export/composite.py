@@ -159,7 +159,7 @@ def clear_all_caches(layer:WrappedLayer):
     layer.data_cache.clear()
     for sublayer in layer.descendants():
         sublayer.composite_cache.clear()
-        layer.data_cache.clear()
+        sublayer.data_cache.clear()
 
 def clear_descendants_composite_cache(layer:WrappedLayer):
     for sublayer in layer.descendants():
