@@ -54,7 +54,7 @@ def blur_op(color, alpha, size=50, apply_to_alpha=False, *_):
 def motion_blur(data, angle, size):
     kernel = np.zeros((size, size))
     kernel[(size - 1) // 2] = 1
-    rotation = cv2.getRotationMatrix2D((size / 2, size / 2), np.degrees(angle), 1.0)
+    rotation = cv2.getRotationMatrix2D((size / 2, size / 2), angle, 1.0)
     kernel = cv2.warpAffine(kernel, rotation, (size, size))
     kernel *= (1.0 / np.sum(kernel))
     return cv2.filter2D(data, -1, kernel)
