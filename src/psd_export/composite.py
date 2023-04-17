@@ -336,11 +336,6 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     await composite_group_layer(sublayer.clip_layers, size, offset)
                 continue
 
-            # Copy group output to prevent mutated cache tiles
-            if sublayer.layer.is_group():
-                color_src = color_src.copy()
-                alpha_src = alpha_src.copy()
-
             # Perform custom filter over the current color_dst
             if sublayer.custom_op is not None:
                 if not np.isscalar(color_dst):
@@ -430,7 +425,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
     if np.isscalar(color_dst):
         return None, None
 
-    return color_dst, alpha_dst
+    return color_dst.copy(), alpha_dst.copy()
 
 debug_path = pathlib.Path('')
 debug_run = 0
