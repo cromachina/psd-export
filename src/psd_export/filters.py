@@ -29,7 +29,7 @@ def mosaic(image, mosaic_factor):
     min_dim = max(4, min_dim)
     scale_dimension = (original_size[0] // min_dim, original_size[1] // min_dim)
     mosaic_image = cv2.resize(image, scale_dimension, interpolation=cv2.INTER_AREA)
-    return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST)
+    return cv2.resize(mosaic_image, original_size, interpolation=cv2.INTER_NEAREST).reshape(image.shape)
 
 mosaic_factor_default = 100
 
