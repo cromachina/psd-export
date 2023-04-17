@@ -160,9 +160,10 @@ def clear_all_caches(layer:WrappedLayer):
         sublayer.composite_cache.clear()
         sublayer.data_cache.clear()
 
-def clear_descendants_composite_cache(layer:WrappedLayer):
+def clear_descendants_caches(layer:WrappedLayer):
     for sublayer in layer.descendants():
         sublayer.composite_cache.clear()
+        sublayer.data_cache.clear()
 
 def set_tag_dependency(layer:WrappedLayer):
     for sublayer in layer.descendants():
@@ -421,7 +422,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             sublayer.worker_counter -= 1
             if sublayer.worker_counter == 0 and not sublayer.tag_dependency:
                 sublayer.data_cache.clear()
-                clear_descendants_composite_cache(sublayer)
+                clear_descendants_caches(sublayer)
 
     if np.isscalar(color_dst):
         return None, None
