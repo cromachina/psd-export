@@ -66,10 +66,10 @@ def compute_file_name(base_file_name, config, enabled_tags):
         next_file_name = base_file_name.with_stem(f'{base_file_name.stem}{primary_tag}-{group_name}')
     return next_file_name
 
-async def export_variant(psd, file_name, config, enabled_tags):
+async def export_variant(psd, file_name, config, enabled_tags, count_mode):
     export_name = compute_file_name(file_name, config, enabled_tags)
 
-    if config.dryrun:
+    if config.dryrun and not count_mode:
         logging.info(f'would export: {export_name}')
         return
 
@@ -92,12 +92,15 @@ async def export_variant(psd, file_name, config, enabled_tags):
                 add_op(tag)
         layer.custom_op = filters.compose_ops(custom_ops)
 
-    image = await composite.composite(psd)
+    image = await composite.composite(psd, count_mode=count_mode)
+
+    if count_mode:
+        return
 
     export_name.parent.mkdir(parents=True, exist_ok=True)
     util.save_file(export_name, image, [cv2.IMWRITE_PNG_COMPRESSION, config.png_compression, cv2.IMWRITE_JPEG_QUALITY, config.jpg_quality])
 
-async def export_combinations(psd, file_name, config, secondary_tags, enabled_tags):
+async def export_combinations(psd, file_name, config, secondary_tags, enabled_tags, count_mode):
     if not secondary_tags:
         return
 
@@ -108,21 +111,20 @@ async def export_combinations(psd, file_name, config, secondary_tags, enabled_ta
         secondary_tags = secondary_tags.remove(xor_group)
         for tag in tags:
             next_enabled = enabled_tags.append((tag, xor_group))
-            await export_variant(psd, file_name, config, next_enabled)
-            await export_combinations(psd, file_name, config, secondary_tags, next_enabled)
+            await export_variant(psd, file_name, config, next_enabled, count_mode)
+            await export_combinations(psd, file_name, config, secondary_tags, next_enabled, count_mode)
 
 def get_least_tagged_layer(layer_map):
     lowest = None
     for pair in layer_map.items():
         if lowest is None or len(pair[1]) < len(lowest[1]):
             lowest = pair
-    return lowest
+    return lowest[1]
 
-def remove_tag_and_clear_cache(layer_map, tag):
+def remove_tag(layer_map, tag):
     for layer, tags in layer_map.items():
         tags = tags.discard(tag)
         if not tags:
-            composite.clear_all_caches(layer)
             layer_map = layer_map.discard(layer)
         else:
             layer_map = layer_map.set(layer, tags)
@@ -167,14 +169,20 @@ async def export_all_variants(file_name, config):
     if not primary_layers:
         primary_layers = primary_layers.set(psd, pset(['']))
 
+    primary_tags = []
     while primary_layers:
-        _, tags = get_least_tagged_layer(primary_layers)
+        tags = get_least_tagged_layer(primary_layers)
         primary_tag = next(iter(tags))
-        enabled = pvector([(primary_tag, None)])
-        if not config.only_secondary_tags:
-            await export_variant(psd, file_name, config, enabled)
-        await export_combinations(psd, file_name, config, secondary_tags, enabled)
-        primary_layers = remove_tag_and_clear_cache(primary_layers, primary_tag)
+        primary_tags.append(primary_tag)
+        primary_layers = remove_tag(primary_layers, primary_tag)
+
+    for count_mode in [True, False]:
+        for primary_tag in primary_tags:
+            enabled = pvector([(primary_tag, None)])
+            if not config.only_secondary_tags:
+                await export_variant(psd, file_name, config, enabled, count_mode)
+            await export_combinations(psd, file_name, config, secondary_tags, enabled, count_mode)
+        composite.clear_count_mode(psd)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,

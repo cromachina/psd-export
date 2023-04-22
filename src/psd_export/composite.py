@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import threading
+from collections import Counter
 
 import cv2
 import numpy as np
@@ -20,19 +21,19 @@ class WrappedLayer():
         self.parent:WrappedLayer = parent
         self.name = layer.name
         self.visible = True if layer.kind == 'psdimage' else layer.visible
-        self.skip = False
         self.custom_op = None
         self.children:list[WrappedLayer] = []
         self.flat_children:list[WrappedLayer] = []
         self.clip_layers:list[WrappedLayer] = clip_layers
         self.composite_cache = {}
+        self.composite_cache_counter = Counter()
         self.data_cache = {}
         self.data_cache_lock = threading.Lock()
+        self.data_cache_counter = 0
         self.tags = []
         self.visibility_dependency = None
         self.tag_dependency = None
         self.cache_hit = ''
-        self.worker_counter = 0
 
         if self.layer.is_group():
             for sublayer, sub_clip_layers in get_layer_and_clip_groupings(self.layer):
@@ -124,17 +125,39 @@ def get_visibility_dependency_sub(layer:WrappedLayer, visited, visit_all):
     if layer.parent.parent != None and layer.parent.layer.blend_mode == BlendMode.PASS_THROUGH:
         get_visibility_dependency_sub(layer.parent, visited, visit_all)
 
-def get_visibility_dependency(layer:WrappedLayer, visit_all=False):
+def get_visibility_dependency(layer:WrappedLayer, possible_deps, visit_all=False):
     visited = set()
     get_visibility_dependency_sub(layer, visited, visit_all)
+    visited = visited.intersection(possible_deps)
     return frozenset(visited)
 
+def flattened_tree(psd:WrappedLayer):
+    flat_list = []
+    def sub(layer):
+        for sublayer in layer.flat_children:
+            sub(sublayer)
+        flat_list.append(layer)
+    sub(psd)
+    return flat_list
+
+def possible_dependencies(layer:WrappedLayer, flat_list):
+    v = set()
+    for sublayer in flat_list:
+        v.add(sublayer)
+        if sublayer == layer:
+            break
+    for clip in layer.clip_layers:
+        for sublayer in clip.descendants():
+            v.add(clip)
+    return v
+
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
-    set_tag_dependency(layer)
+    flat_list = flattened_tree(layer)
+    set_tag_dependency(layer, flat_list)
     for sublayer in layer.descendants():
         sublayer.worker_counter = tile_count
         sublayer.cache_hit = ''
-        sublayer.visibility_dependency = get_visibility_dependency(sublayer)
+        sublayer.visibility_dependency = get_visibility_dependency(sublayer, possible_dependencies(sublayer, flat_list))
         if sublayer.custom_op is not None:
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
             sublayer.custom_op_condition = asyncio.Condition()
@@ -142,19 +165,49 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
             sublayer.custom_op_color = np.zeros(size + (3,))
             sublayer.custom_op_alpha = np.zeros(size + (1,))
 
-def get_tile_cache(layer:WrappedLayer, offset):
-    if offset not in layer.composite_cache:
-        layer.composite_cache[offset] = {}
-    return layer.composite_cache[offset]
+def increment_get_counter(counter, key):
+    counter[key] += 1
+
+def decrement_get_counter(counter, cache, key):
+    counter[key] -= 1
+    if counter[key] == 0:
+        if key in cache:
+            del cache[key]
+    elif counter[key] < 0:
+        pass
+
+def inc_composite_cache(layer:WrappedLayer):
+    increment_get_counter(layer.composite_cache_counter, layer.visibility_dependency)
+
+def dec_composite_cache(layer:WrappedLayer):
+    decrement_get_counter(layer.composite_cache_counter, layer.composite_cache, layer.visibility_dependency)
+
+def is_counter_zero(layer:WrappedLayer):
+    return layer.composite_cache_counter[layer.visibility_dependency] <= 0
+
+def inc_data_cache(layer:WrappedLayer):
+    layer.data_cache_counter += 1
+
+def dec_data_cache(layer:WrappedLayer):
+    layer.data_cache_counter -= 1
+    if layer.data_cache_counter == 0:
+        layer.data_cache.clear()
+    if layer.data_cache_counter < 0:
+        pass
+
+def get_tile_cache(layer:WrappedLayer, key):
+    if key not in layer.composite_cache:
+        layer.composite_cache[key] = {}
+    return layer.composite_cache[key]
 
 def get_cached_composite(layer:WrappedLayer, offset):
-    return get_tile_cache(layer, offset).get(layer.visibility_dependency, None)
+    return get_tile_cache(layer, layer.visibility_dependency).get(offset, None)
 
 def set_cached_composite(layer:WrappedLayer, offset, tile_data):
     for data in tile_data:
         if not np.isscalar(data):
             data.flags.writeable = False
-    get_tile_cache(layer, offset)[layer.visibility_dependency] = tile_data
+    get_tile_cache(layer, layer.visibility_dependency)[offset] = tile_data
 
 def clear_all_caches(layer:WrappedLayer):
     layer.composite_cache.clear()
@@ -168,10 +221,10 @@ def clear_descendants_caches(layer:WrappedLayer):
         sublayer.composite_cache.clear()
         sublayer.data_cache.clear()
 
-def set_tag_dependency(layer:WrappedLayer):
+def set_tag_dependency(layer:WrappedLayer, flat_list):
     for sublayer in layer.descendants():
         if sublayer.tag_dependency is None:
-            v = get_visibility_dependency(sublayer, True)
+            v = get_visibility_dependency(sublayer, possible_dependencies(sublayer, flat_list), True)
             sublayer.tag_dependency = False
             for v_layer in v:
                 tags = [not tag.ignore for tag in v_layer.tags]
@@ -179,20 +232,9 @@ def set_tag_dependency(layer:WrappedLayer):
                     sublayer.tag_dependency = True
                     break
 
-def set_skip_to_last_untagged(layer:WrappedLayer):
-    skip = False
-    for child in reversed(layer.children):
-        if not child.tag_dependency and not skip:
-            skip = True
-            continue
-        if skip and child.composite_cache:
-            child.skip = True
-            child.data_cache.clear()
-            child.composite_cache.clear()
-
-def set_skips(layer:WrappedLayer):
+def clear_count_mode(layer:WrappedLayer):
     for sublayer in layer.descendants():
-        set_skip_to_last_untagged(sublayer)
+        sublayer.composite_cache.clear()
 
 def get_cached_layer_data(layer:WrappedLayer, channel):
     with layer.data_cache_lock:
@@ -300,22 +342,23 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
     sublayer:WrappedLayer
     for sublayer in layer:
+        if not sublayer.visible:
+            if sublayer.custom_op is not None:
+                await barrier_skip(sublayer.custom_op_barrier)
+            continue
+
+        cached_composite = get_cached_composite(sublayer, offset)
+        dec_composite_cache(sublayer)
+        if cached_composite is not None:
+            color_dst, alpha_dst = cached_composite
+            sublayer.cache_hit = True
+            if sublayer.custom_op is not None:
+                await barrier_skip(sublayer.custom_op_barrier)
+            continue
+        else:
+            sublayer.cache_hit = False
+
         try:
-            if not sublayer.visible or sublayer.skip:
-                if sublayer.custom_op is not None:
-                    await barrier_skip(sublayer.custom_op_barrier)
-                continue
-
-            cached_composite = get_cached_composite(sublayer, offset)
-            if cached_composite is not None:
-                color_dst, alpha_dst = cached_composite
-                sublayer.cache_hit = True
-                if sublayer.custom_op is not None:
-                    await barrier_skip(sublayer.custom_op_barrier)
-                continue
-            else:
-                sublayer.cache_hit = False
-
             blend_mode = sublayer.layer.blend_mode
 
             if sublayer.layer.is_group():
@@ -415,12 +458,10 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     await peval(lambda: np.multiply(alpha_src, mask_src, out=alpha_src))
                 alpha_dst = await peval(lambda: blendfuncs.normal_alpha(alpha_dst, alpha_src))
 
-            set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
+            if not is_counter_zero(sublayer):
+                set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
         finally:
-            sublayer.worker_counter -= 1
-            if sublayer.worker_counter == 0 and not sublayer.tag_dependency:
-                sublayer.data_cache.clear()
-                clear_descendants_caches(sublayer)
+            dec_data_cache(sublayer)
 
     if np.isscalar(color_dst):
         return None, None
@@ -458,22 +499,59 @@ def generate_tiles(size, tile_size):
             x += tile_width
         y += tile_height
 
-async def composite(psd:WrappedLayer, tile_size=(256,256)):
+async def has_alpha(layer, size, offset):
+    if not has_tile_data(layer.layer, size, offset):
+        return False
+    if await is_zero_alpha(layer, size, offset):
+        return False
+    return True
+
+# Partially simulate compositing. This should match the recursive structure of composite_layers.
+# This could be inlined into composite_layers, but it starts to get very messy.
+async def count_tile(layer:WrappedLayer, size, offset):
+    alpha_dst = False
+    for sublayer in layer:
+        if not sublayer.visible:
+            continue
+        inc_composite_cache(sublayer)
+        if get_cached_composite(sublayer, offset) is not None:
+            continue
+        if sublayer.layer.is_group():
+            alpha_src = await count_tile(sublayer, size, offset)
+        else:
+            alpha_src = await has_alpha(sublayer, size, offset)
+        inc_data_cache(sublayer)
+        if alpha_src == False:
+            set_cached_composite(sublayer, offset, (0, 0))
+            await count_tile(sublayer.clip_layers, size, offset)
+            continue
+        if sublayer.layer.blend_mode != BlendMode.PASS_THROUGH:
+            await count_tile(sublayer.clip_layers, size, offset)
+        set_cached_composite(sublayer, offset, (1, 1))
+        alpha_dst = alpha_src
+    return alpha_dst
+
+async def composite(psd:WrappedLayer, tile_size=(256,256), count_mode=False):
     '''
     Composite the given PSD and return color (RGB) and alpha arrays.
     `tile_size` is arranged by (height, width)
     '''
     size = psd.layer.height, psd.layer.width
-    color = np.zeros(size + (3,))
-    alpha = np.zeros(size + (1,))
+    if count_mode:
+        color = None
+        alpha = None
+    else:
+        color = np.zeros(size + (3,))
+        alpha = np.zeros(size + (1,))
 
     tiles = list(generate_tiles(size, tile_size))
     set_layer_extra_data(psd, len(tiles), size)
 
     async with asyncio.TaskGroup() as tg:
         for (tile_size, tile_offset) in tiles:
-            tg.create_task(composite_tile(psd, tile_size, tile_offset, color, alpha))
-
-    set_skips(psd)
+            if count_mode:
+                tg.create_task(count_tile(psd, tile_size, tile_offset))
+            else:
+                tg.create_task(composite_tile(psd, tile_size, tile_offset, color, alpha))
 
     return color, alpha
