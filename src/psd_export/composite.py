@@ -15,6 +15,8 @@ from . import blendfuncs
 from . import util
 from .util import peval
 
+dtype = np.float32
+
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):
         self.layer:Layer = layer
@@ -157,8 +159,8 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
             sublayer.custom_op_condition = asyncio.Condition()
             sublayer.custom_op_finished = False
-            sublayer.custom_op_color = np.zeros(size + (3,))
-            sublayer.custom_op_alpha = np.zeros(size + (1,))
+            sublayer.custom_op_color = np.zeros(size + (3,), dtype=dtype)
+            sublayer.custom_op_alpha = np.zeros(size + (1,), dtype=dtype)
 
 def increment_get_counter(counter, key):
     counter[key] += 1
@@ -213,7 +215,7 @@ def get_cached_layer_data(layer:WrappedLayer, channel):
         if channel not in layer.data_cache:
             data = layer.layer.numpy(channel)
             if data is not None:
-                data = data.astype(np.float64)
+                data = data.astype(dtype)
             layer.data_cache[channel] = data
             return data
         return layer.data_cache[channel]
@@ -223,7 +225,7 @@ async def get_padded_data(layer:WrappedLayer, channel, size, offset, data_offset
     if data is None:
         return None
     shape = size + data.shape[2:]
-    pad = await peval(lambda: util.full(shape, fill))
+    pad = await peval(lambda: util.full(shape, fill, dtype=dtype))
     await peval(lambda: blit(pad, data, np.array(util.swap(data_offset)) - np.array(offset)))
     return pad
 
@@ -258,7 +260,7 @@ async def get_pixel_layer_data(layer:WrappedLayer, size, offset):
         return None, None
     alpha_src = await get_padded_data(layer, 'shape', size, offset, layer.layer.offset)
     if alpha_src is None:
-        alpha_src = np.ones(size + (1,))
+        alpha_src = np.ones(size + (1,), dtype=dtype)
     color_src = await get_padded_data(layer, 'color', size, offset, layer.layer.offset)
     return color_src, alpha_src
 
@@ -510,8 +512,8 @@ async def composite(psd:WrappedLayer, tile_size=(256,256), count_mode=False):
         color = None
         alpha = None
     else:
-        color = np.zeros(size + (3,))
-        alpha = np.zeros(size + (1,))
+        color = np.zeros(size + (3,), dtype=dtype)
+        alpha = np.zeros(size + (1,), dtype=dtype)
 
     tiles = list(generate_tiles(size, tile_size))
     set_layer_extra_data(psd, len(tiles), size)
