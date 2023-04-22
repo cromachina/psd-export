@@ -32,8 +32,6 @@ class WrappedLayer():
         self.data_cache_counter = 0
         self.tags = []
         self.visibility_dependency = None
-        self.tag_dependency = None
-        self.cache_hit = ''
 
         if self.layer.is_group():
             for sublayer, sub_clip_layers in get_layer_and_clip_groupings(self.layer):
@@ -153,10 +151,7 @@ def possible_dependencies(layer:WrappedLayer, flat_list):
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
     flat_list = flattened_tree(layer)
-    set_tag_dependency(layer, flat_list)
     for sublayer in layer.descendants():
-        sublayer.worker_counter = tile_count
-        sublayer.cache_hit = ''
         sublayer.visibility_dependency = get_visibility_dependency(sublayer, possible_dependencies(sublayer, flat_list))
         if sublayer.custom_op is not None:
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
@@ -208,29 +203,6 @@ def set_cached_composite(layer:WrappedLayer, offset, tile_data):
         if not np.isscalar(data):
             data.flags.writeable = False
     get_tile_cache(layer, layer.visibility_dependency)[offset] = tile_data
-
-def clear_all_caches(layer:WrappedLayer):
-    layer.composite_cache.clear()
-    layer.data_cache.clear()
-    for sublayer in layer.descendants():
-        sublayer.composite_cache.clear()
-        sublayer.data_cache.clear()
-
-def clear_descendants_caches(layer:WrappedLayer):
-    for sublayer in layer.descendants():
-        sublayer.composite_cache.clear()
-        sublayer.data_cache.clear()
-
-def set_tag_dependency(layer:WrappedLayer, flat_list):
-    for sublayer in layer.descendants():
-        if sublayer.tag_dependency is None:
-            v = get_visibility_dependency(sublayer, possible_dependencies(sublayer, flat_list), True)
-            sublayer.tag_dependency = False
-            for v_layer in v:
-                tags = [not tag.ignore for tag in v_layer.tags]
-                if any(tags):
-                    sublayer.tag_dependency = True
-                    break
 
 def clear_count_mode(layer:WrappedLayer):
     for sublayer in layer.descendants():
@@ -351,12 +323,9 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
         dec_composite_cache(sublayer)
         if cached_composite is not None:
             color_dst, alpha_dst = cached_composite
-            sublayer.cache_hit = True
             if sublayer.custom_op is not None:
                 await barrier_skip(sublayer.custom_op_barrier)
             continue
-        else:
-            sublayer.cache_hit = False
 
         try:
             blend_mode = sublayer.layer.blend_mode
