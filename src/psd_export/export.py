@@ -142,6 +142,8 @@ async def export_all_variants(file_name, config):
 
     primary_layers = pmap()
     secondary_tags = pmap()
+    primary_filter = config.primary_filter.split()
+    secondary_filter = config.secondary_filter.split()
 
     for layer in psd.descendants():
         tags = parse_tags(layer.name)
@@ -154,11 +156,13 @@ async def export_all_variants(file_name, config):
             if tag.ignore:
                 continue
             if tag.xor_group is None:
-                s = primary_layers.get(layer, pset()).add(tag.name)
-                primary_layers = primary_layers.set(layer, s)
+                if not primary_filter or tag.name in primary_filter:
+                    s = primary_layers.get(layer, pset()).add(tag.name)
+                    primary_layers = primary_layers.set(layer, s)
             else:
-                group = secondary_tags.get(tag.xor_group, pset()).add(tag.name)
-                secondary_tags = secondary_tags.set(tag.xor_group, group)
+                if not secondary_filter or tag.name in secondary_filter:
+                    group = secondary_tags.get(tag.xor_group, pset()).add(tag.name)
+                    secondary_tags = secondary_tags.set(tag.xor_group, group)
 
     if not primary_layers:
         primary_layers = primary_layers.set(psd, pset(['']))
@@ -181,15 +185,19 @@ arg_parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, defau
     help='Show what files would have been exported, but do not actually export anything.')
 arg_parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
     help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
+arg_parser.add_argument('--primary-filter', default="", type=str,
+    help='Only export primary tags matching the given names.')
+arg_parser.add_argument('--secondary-filter', default="", type=str,
+    help='Only export secondary tags matching the given names.')
 arg_parser.add_argument('--mosaic-factor', default=filters.mosaic_factor_default, type=float,
     help='Set the mosaic proportion factor of censors, based on the minimum image dimension.')
 arg_parser.add_argument('--png-compression', default=1, type=int,
     help='Set the compression level for PNG output (0 to 9).')
 arg_parser.add_argument('--jpg-quality', default=95, type=int,
     help='Set the quality level for JPG output (0 to 100).')
-arg_parser.add_argument('--output-type', type=str, default='png',
+arg_parser.add_argument('--output-type', default='png', type=str,
     help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
-arg_parser.add_argument('--file-name', type=str, default='*.psd',
+arg_parser.add_argument('--file-name',  default='*.psd', type=str,
     help='PSD files to process; can use a glob pattern.')
 
 async def async_main():
