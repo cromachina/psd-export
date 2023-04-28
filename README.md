@@ -47,13 +47,15 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 - Filters can double as export tags too.
 - If you want a filter to not be treated as an export tag, you can preceed it with `#` to set the ignore flag, for example `[#censor]`
 - Filters can have arguments as well to control their behavior, separated by spaces, for example `[#censor 50]`
-- If you want the filter to apply to layers outside of the group it is in, then the group blend mode should be set to `pass-through`, otherwise it may blend with transparent black pixels if the filter is over a transparent part of a group.
+- If you want the filter to apply to layers outside of the group it is in, then the group blend mode should be set to `pass-through`, otherwise it may blend with transparent black pixels if the filter is over a transparent part of a group. The blur and motion blur filters apply to alpha as well, so they should behave as expected in isolated groups.
 - If multiple filters are enabled in one layer, they will be applied from left to right on top of each result, example:
   - `[#censor][#blur]` will apply a mosaic, and then a blur on top of that mosaic.
+- Blend modes and clipping layers applied directly to filter layers are ignored.
 
 ##### Available default filters:
-- `[censor mosaic_factor]`
-  - If the mosaic_factor argument is omitted, then it is defaulted to 100, which means 1/100th the smallest dimension, (or 4 pixels, whichever is larger) in order to be Pixiv compliant.
+- `[censor mosaic_factor apply_to_alpha]`
+  - If the `mosaic_factor` argument is omitted, then it is defaulted to 100, which means 1/100th the smallest dimension, (or 4 pixels, whichever is larger) in order to be Pixiv compliant.
+  - `apply_to_alpha` defaults to False. Any value is treated as True.
   - Typically you will want this filter to be a secondary tag, for example: `[censor@]`, so you can have censored and uncensored outputs.
 - `[blur size]`
   - The `size` argument defaults to 50 if omitted.
@@ -67,21 +69,22 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 In your own script:
 ```py
 # my-export.py
-from psd_export import (export, filters)
+from psd_export import (export, filters, util)
 import numpy as np
 
 my_arg1_default = 1.0
 
 # Register the filter with this decorator:
 @filters.filter('my-filter')
-# Only positional arguments work right now.
-def some_filter(color, alpha, arg1=None, arg2=100, *_):
+# Only positional arguments work right now. The result of this function replaces the destination color and alpha.
+def some_filter(color_dst, color_src, alpha_dst, alpha_src, arg1=None, arg2=100, *_):
     # Cast arguments to your desired types, as they will come in as strings.
     if arg1 is None:
         arg1 = my_arg1_default
     arg1 = float(arg1)
     # Manipulate color and alpha numpy arrays, in-place if you want.
     color = np.subtract(arg1, color, out=color)
+    color = util.lerp(color_dst, color, alpha_src)
     # Always return the same shaped arrays as a tuple:
     return color, alpha
 

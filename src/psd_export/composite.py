@@ -159,8 +159,10 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
             sublayer.custom_op_condition = asyncio.Condition()
             sublayer.custom_op_finished = False
-            sublayer.custom_op_color = np.zeros(size + (3,), dtype=dtype)
-            sublayer.custom_op_alpha = np.zeros(size + (1,), dtype=dtype)
+            sublayer.custom_op_color_dst = np.zeros(size + (3,), dtype=dtype)
+            sublayer.custom_op_color_src = np.zeros(size + (3,), dtype=dtype)
+            sublayer.custom_op_alpha_dst = np.zeros(size + (1,), dtype=dtype)
+            sublayer.custom_op_alpha_src = np.zeros(size + (1,), dtype=dtype)
 
 def increment_get_counter(counter, key):
     counter[key] += 1
@@ -340,6 +342,43 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             else:
                 color_src, alpha_src = await get_pixel_layer_data(sublayer, size, offset)
 
+            # Perform custom filter over the current src and dst
+            if sublayer.custom_op is not None:
+                def ensure_array(src, shape):
+                    if src is None or np.isscalar(src):
+                        return np.zeros(shape, dtype=dtype)
+                    else:
+                        return src.copy()
+                color_dst = ensure_array(color_dst, size + (3,))
+                color_src = ensure_array(color_src, size + (3,))
+                alpha_dst = ensure_array(alpha_dst, size + (1,))
+                alpha_src = ensure_array(alpha_src, size + (1,))
+                await peval(lambda: blit(sublayer.custom_op_color_dst, color_dst, offset))
+                await peval(lambda: blit(sublayer.custom_op_color_src, color_src, offset))
+                await peval(lambda: blit(sublayer.custom_op_alpha_dst, alpha_dst, offset))
+                await peval(lambda: blit(sublayer.custom_op_alpha_src, alpha_src, offset))
+                await sublayer.custom_op_barrier.wait()
+                if not sublayer.custom_op_condition.locked():
+                    if not sublayer.custom_op_finished:
+                        async with sublayer.custom_op_condition:
+                            sublayer.custom_op_color_dst, sublayer.custom_op_alpha_dst = \
+                                await peval(lambda: sublayer.custom_op(
+                                    sublayer.custom_op_color_dst,
+                                    sublayer.custom_op_color_src,
+                                    sublayer.custom_op_alpha_dst,
+                                    sublayer.custom_op_alpha_src))
+                            sublayer.custom_op_finished = True
+                            sublayer.custom_op_condition.notify_all()
+                else:
+                    async with sublayer.custom_op_condition:
+                        await sublayer.custom_op_condition.wait_for(lambda: sublayer.custom_op_finished)
+                neg_offset = -np.array(offset)
+                await peval(lambda: blit(color_dst, sublayer.custom_op_color_dst, neg_offset))
+                await peval(lambda: blit(alpha_dst, sublayer.custom_op_alpha_dst, neg_offset))
+                if not is_counter_zero(sublayer):
+                    set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
+                continue
+
             # Empty tile, can just ignore.
             if color_src is None:
                 set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
@@ -349,26 +388,6 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 if sublayer.clip_layers:
                     await composite_group_layer(sublayer.clip_layers, size, offset)
                 continue
-
-            # Perform custom filter over the current color_dst
-            if sublayer.custom_op is not None:
-                if not np.isscalar(color_dst):
-                    await peval(lambda: blit(sublayer.custom_op_color, color_dst, offset))
-                    await peval(lambda: blit(sublayer.custom_op_alpha, alpha_src, offset))
-                await sublayer.custom_op_barrier.wait()
-                if not sublayer.custom_op_condition.locked():
-                    if not sublayer.custom_op_finished:
-                        async with sublayer.custom_op_condition:
-                            sublayer.custom_op_color, sublayer.custom_op_alpha = \
-                                await peval(lambda: sublayer.custom_op(sublayer.custom_op_color, sublayer.custom_op_alpha))
-                            sublayer.custom_op_finished = True
-                            sublayer.custom_op_condition.notify_all()
-                else:
-                    async with sublayer.custom_op_condition:
-                        await sublayer.custom_op_condition.wait_for(lambda: sublayer.custom_op_finished)
-                neg_offset = -np.array(offset)
-                await peval(lambda: blit(color_src, sublayer.custom_op_color, neg_offset))
-                await peval(lambda: blit(alpha_src, sublayer.custom_op_alpha, neg_offset))
 
             # Opacity is actually FILL when special mode is true!
             opacity, special_mode = get_sai_special_mode_opacity(sublayer.layer)

@@ -79,7 +79,7 @@ async def export_variant(psd, file_name, config, enabled_tags, count_mode):
         def add_op(tag):
             custom_op = filters.get_filter(tag.name)
             if custom_op:
-                custom_ops.append(lambda c, a: custom_op(c, a, *tag.args))
+                custom_ops.append(lambda *args: custom_op(*args, *tag.args))
 
         for tag in layer.tags:
             if not tag.ignore:
