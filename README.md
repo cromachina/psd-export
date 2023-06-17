@@ -159,8 +159,8 @@ After exporting:
 | Exclude | Pass |
 | Subtract | Pass |
 | Divide | Pass |
-| Hue | Broken, bad HSV computation? |
-| Saturation | Broken, bad HSV computation? |
+| Hue | Pass |
+| Saturation | Pass |
 | Color | Pass |
 | Luminosity | Pass |
 | [TS] Linear Burn (Shade) | Pass |

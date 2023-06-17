@@ -154,9 +154,19 @@ def darken(Cd, Cs, Ad, As):
 def lighten(Cd, Cs, Ad, As):
     return np.maximum(Cs * Ad, Cd * As) + comp2(Cd, Cs, Ad, As)
 
-darker_color = to_premul(blend.darker_color)
+@to_premul
+def darker_color(Cd, Cs):
+    index = lum(Cs) < lum(Cd)
+    B = Cd.copy()
+    B[index] = Cs[index]
+    return B
 
-lighter_color = to_premul(blend.lighter_color)
+@to_premul
+def lighter_color(Cd, Cs):
+    index = lum(Cs) > lum(Cd)
+    B = Cd.copy()
+    B[index] = Cs[index]
+    return B
 
 def ts_difference(Cd, Cs, Ad, As):
     return Cs + Cd - 2 * np.minimum(Cd * As, Cs * Ad)
@@ -174,15 +184,59 @@ def subtract(Cd, Cs, Ad, As):
 
 divide = to_premul(util.clip_divide)
 
-# FIXME Broken
-hue = to_premul(blend.hue)
+def lum(C):
+    return np.repeat(np.sum((0.3, 0.59, 0.11) * C, axis=2, keepdims=True), repeats=3, axis=2)
 
-# FIXME Broken
-saturation = to_premul(blend.saturation)
+def clip_color(C):
+    L = lum(C)
+    C_min = np.repeat(np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
+    C_max = np.repeat(np.max(C, axis=2, keepdims=True), repeats=3, axis=2)
+    i_min = C_min < 0.0
+    i_max = C_max > 1.0
+    L_min = L[i_min]
+    L_max = L[i_max]
+    C[i_min] = L_min + (C[i_min] - L_min) * L_min / (L_min - C_min[i_min])
+    C[i_max] = L_max + (C[i_max] - L_max) * (1 - L_max) / (C_max[i_max] - L_max)
+    return C
 
-color = to_premul(blend.color)
+def set_lum(C, L):
+    return clip_color(C + (L - lum(C)))
 
-luminosity = to_premul(blend.luminosity)
+def sat(C):
+    return np.repeat(np.max(C, axis=2, keepdims=True) - np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
+
+def set_sat(C, S):
+    C = C.copy()
+    C_max = np.repeat(np.max(C, axis=2, keepdims=True), repeats=3, axis=2)
+    C_mid = np.repeat(np.median(C, axis=2, keepdims=True), repeats=3, axis=2)
+    C_min = np.repeat(np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
+    i_diff = C_max > C_min
+    i_mid = C == C_mid
+    i_max = (C == C_max) & ~i_mid
+    i_min = C == C_min
+    C = np.zeros_like(C)
+    C[i_diff & i_mid] = util.safe_divide((C_mid - C_min) * S, (C_max - C_min))[i_diff & i_mid]
+    C[i_diff & i_max] = S[i_diff & i_max]
+    C[~i_diff & i_mid] = 0
+    C[~i_diff & i_max] = 0
+    C[i_min] = 0
+    return C
+
+@to_premul
+def hue(Cd, Cs):
+    return set_lum(set_sat(Cs, sat(Cd)), lum(Cd))
+
+@to_premul
+def saturation(Cd, Cs):
+    return set_lum(set_sat(Cd, sat(Cs)), lum(Cd))
+
+@to_premul
+def color(Cd, Cs):
+    return set_lum(Cs, lum(Cd))
+
+@to_premul
+def luminosity(Cd, Cs):
+    return set_lum(Cd, lum(Cs))
 
 blend_modes = {
     BlendMode.NORMAL: normal,
