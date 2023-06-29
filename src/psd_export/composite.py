@@ -215,9 +215,9 @@ def clear_count_mode(layer:WrappedLayer):
 def get_cached_layer_data(layer:WrappedLayer, channel):
     with layer.data_cache_lock:
         if channel not in layer.data_cache:
-            data = layer.layer.numpy(channel)
+            data = util.layer_numpy(layer.layer, channel)
             if data is not None:
-                data = data.astype(dtype)
+                data = data.astype(dtype, copy=False)
             layer.data_cache[channel] = data
             return data
         return layer.data_cache[channel]
