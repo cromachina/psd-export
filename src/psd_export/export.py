@@ -45,8 +45,19 @@ def parse_tag(tag:str):
             args[1:]
         )
 
+is_range = re.compile('(\\d+):(\\d+)')
+
 def parse_tags(input):
-    return [parse_tag(tag) for tag in tag_regex.findall(input)]
+    tags = []
+    for tag_str in tag_regex.findall(input):
+        tag = parse_tag(tag_str)
+        tag_range = is_range.match(tag.name)
+        if tag_range:
+            for i in range(int(tag_range[1]), int(tag_range[2]) + 1):
+                tags.append(tag._replace(name=str(i)))
+        else:
+            tags.append(tag)
+    return tags
 
 def fixed_primary_tag(tag):
     return tag if tag == '' else f'-{tag}'
