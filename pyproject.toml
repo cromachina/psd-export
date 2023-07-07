@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "psd-export"
-version = "1.0.12"
+version = "1.0.13"
 authors = [
     { name = "cromachina" }
 ]
