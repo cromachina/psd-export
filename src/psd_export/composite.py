@@ -313,8 +313,8 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
     if backdrop:
         color_dst, alpha_dst = backdrop
     else:
-        color_dst = 0.0
-        alpha_dst = 0.0
+        color_dst = dtype(0.0)
+        alpha_dst = dtype(0.0)
 
     sublayer:WrappedLayer
     for sublayer in layer:
