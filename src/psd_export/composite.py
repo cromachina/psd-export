@@ -109,6 +109,8 @@ def get_visibility_all_children(layer:WrappedLayer, visited, visit_all):
             visited.add(layer)
         for sublayer in layer.flat_children:
             get_visibility_all_children(sublayer, visited, visit_all)
+        for sublayer in layer.clip_layers:
+            get_visibility_all_children(sublayer, visited, visit_all)
     return visited
 
 def get_visibility_dependency_sub(layer:WrappedLayer, visited, visit_all):
@@ -146,9 +148,8 @@ def possible_dependencies(layer:WrappedLayer, flat_list):
         v.add(sublayer)
         if sublayer == layer:
             break
-    for clip in layer.clip_layers:
-        for sublayer in clip.descendants():
-            v.add(clip)
+    for sublayer in layer.descendants():
+        v.add(sublayer)
     return v
 
 def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
