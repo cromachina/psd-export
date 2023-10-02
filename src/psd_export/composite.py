@@ -15,7 +15,7 @@ from . import blendfuncs
 from . import util
 from .util import peval
 
-dtype = np.float32
+dtype = np.float64
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):
@@ -307,8 +307,8 @@ def get_sai_special_mode_opacity(layer:Layer):
     tsly = blocks.get(Tag.TRANSPARENCY_SHAPES_LAYER, None)
     iOpa = blocks.get(Tag.BLEND_FILL_OPACITY, None)
     if tsly and iOpa and tsly.data == 0:
-        return float(iOpa.data) / 255.0, True
-    return layer.opacity / 255.0, False
+        return dtype(iOpa.data) / 255.0, True
+    return dtype(layer.opacity) / 255.0, False
 
 async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
