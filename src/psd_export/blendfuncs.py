@@ -81,11 +81,9 @@ def ts_color_burn_non_premul(Cd, Cs):
 
 ts_color_burn = to_premul(ts_color_burn_non_premul)
 
-# FIXME
 def sai_color_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
-    Csd = util.clip_divide(Cs, As)
-    B = 1 - util.clip_divide(1 - Cdd, Cs) + comp(Cdd, As)
+    B = 1 - util.clip_divide(1 - Cdd, 1 - As + Cs)
     return util.lerp(Cs, B, Ad, out=B)
 
 def ts_color_dodge_non_premul(Cd, Cs):

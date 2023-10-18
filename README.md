@@ -144,7 +144,7 @@ After exporting:
 | Linear Burn (Shade) | Pass |
 | Linear Dodge (Shine) | Pass |
 | Linear Light (Shade/Shine) | Pass |
-| Color Burn (Burn) | Broken when source alpha < 1 |
+| Color Burn (Burn) | Pass |
 | Color Dodge (Dodge) | Pass |
 | Vivid Light (Burn/Dodge) | Broken, currently [TS] Vivid Light |
 | Soft Light | Pass |
