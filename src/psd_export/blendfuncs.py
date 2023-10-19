@@ -41,7 +41,7 @@ def overlay(Cd, Cs, Ad, As):
 def sai_linear_burn(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs - As
-    util.clip_in(H)
+    H = util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
 def ts_linear_burn_non_premul(Cd, Cs):
@@ -52,7 +52,7 @@ ts_linear_burn = to_premul(ts_linear_burn_non_premul)
 def sai_linear_dodge(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     H = Cdd + Cs
-    util.clip_in(H)
+    H = util.clip_in(H)
     return util.lerp(Cs, H, Ad, out=H)
 
 def ts_linear_dodge_non_premul(Cd, Cs):
@@ -64,7 +64,7 @@ def sai_linear_light(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     Cs2 = Cs * 2
     LB = Cdd + Cs2 - As
-    util.clip_in(LB)
+    LB = util.clip_in(LB)
     return util.lerp(Cs, LB, Ad, out=LB)
 
 @to_premul

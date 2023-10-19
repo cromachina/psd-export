@@ -27,6 +27,8 @@ def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
 
 def clip(val, out=None):
+    if np.isscalar(val):
+        out = None
     return np.clip(val, 0, 1, out=out)
 
 def clip_in(val):
