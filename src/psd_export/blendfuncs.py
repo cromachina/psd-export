@@ -105,14 +105,18 @@ def ts_vivid_light(Cd, Cs):
     B[index] = D[index]
     return B
 
-# FIXME
 def sai_vivid_light(Cd, Cs, Ad, As):
-    return ts_vivid_light(Cd, Cs, Ad, As)
-    Cs2 = 2 * Cs
-    index = Cs2 > As
-    B = ts_color_burn(Cd, Cs2, Ad, As)
-    B[index] = ts_color_dodge(Cd, Cs2 - As, Ad, As)[index]
-    return B
+    Cdd = util.clip_divide(Cd, Ad)
+    Csd = util.clip_divide(Cs, As)
+    Cs2 = As - Cs * 2
+    CB = 1 - util.clip_divide(1 - Cdd, 1 - Cs2)
+    CD = util.clip_divide(Cdd, 1 + Cs2)
+    index = Csd > 0.5
+    CB[index] = CD[index]
+    index = Cs == 1
+    CB[index] = 1
+    CB = util.clip_in(CB)
+    return util.lerp(Cs, CB, Ad, out=CB)
 
 soft_light = to_premul(blend.soft_light)
 

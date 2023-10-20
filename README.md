@@ -146,7 +146,7 @@ After exporting:
 | Linear Light (Shade/Shine) | Pass |
 | Color Burn (Burn) | Pass |
 | Color Dodge (Dodge) | Pass |
-| Vivid Light (Burn/Dodge) | Broken, currently [TS] Vivid Light |
+| Vivid Light (Burn/Dodge) | Pass |
 | Soft Light | Pass |
 | Hard Light | Pass |
 | Pin Light | Pass |
