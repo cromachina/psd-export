@@ -115,7 +115,6 @@ def sai_vivid_light(Cd, Cs, Ad, As):
     CB[index] = CD[index]
     index = Cs == 1
     CB[index] = 1
-    CB = util.clip_in(CB)
     return util.lerp(Cs, CB, Ad, out=CB)
 
 soft_light = to_premul(blend.soft_light)
@@ -176,7 +175,7 @@ def ts_difference(Cd, Cs, Ad, As):
 def sai_difference(Cd, Cs, Ad, As):
     Cdd = util.clip_divide(Cd, Ad)
     D = np.abs(Cdd - Cs)
-    return util.lerp(Cs, D, Ad)
+    return util.lerp(Cs, D, Ad, out=D)
 
 def exclusion(Cd, Cs, Ad, As):
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + comp2(Cd, Cs, Ad, As)
