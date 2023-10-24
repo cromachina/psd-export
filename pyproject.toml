@@ -11,7 +11,7 @@ authors = [
 license = { file = "LICENSE" }
 description = "Fast exporting of PSDs with [tagged] layers for variants."
 readme = "README.md"
-requires-python = ">=3.0"
+requires-python = ">=3.11.2"
 dependencies = [
     'numba>=0.57.1',
     'numpy',
