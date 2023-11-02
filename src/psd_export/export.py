@@ -20,7 +20,7 @@ class Tag(NamedTuple):
     xor_group: str
     args: list[str]
 
-tag_regex = re.compile('\[(.*?)\]')
+tag_regex = re.compile('\\[(.*?)\\]')
 
 def parse_tag(tag:str):
     args = tag.split()
