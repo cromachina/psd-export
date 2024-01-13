@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools", "wheel", "cython"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "psd-export"
-version = "1.0.22"
+version = "1.0.23"
 authors = [
     { name = "cromachina" }
 ]
@@ -35,3 +35,9 @@ classifiers = [
 
 [project.scripts]
 psd-export = "psd_export.export:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+psd_export = ["*.pyx"]
