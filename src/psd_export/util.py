@@ -1,14 +1,10 @@
 import asyncio
 import logging
-import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
-import psd_tools.api.numpy_io as numpy_io
-import psd_tools.constants as ptc
 import psutil
-from psd_tools.api.layers import Layer
 
 file_writer_futures = []
 
@@ -79,3 +75,11 @@ def save_file(file_name, image, imwrite_args=[]):
 async def save_workers_wait_all():
     await asyncio.gather(*file_writer_futures)
     file_writer_futures.clear()
+
+try:
+    from . import rle
+    def layer_numpy(layer, channel=None):
+        return rle.layer_numpy(layer, channel)
+except ImportError:
+    def layer_numpy(layer, channel=None):
+        return layer.numpy(channel)
