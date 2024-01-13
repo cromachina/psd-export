@@ -8,19 +8,19 @@ import psd_tools.constants as ptc
 from psd_tools.api.layers import Layer
 
 # A more speed optimized RLE decode based on https://github.com/psd-tools/psd-tools/blob/main/src/psd_tools/compression/
-cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, size_t height, size_t width):
+cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result):
     cdef uint32_t row_offset = 0, count
-    cdef int src, dst, length, header, i
+    cdef int src, dst, length, header, i, src_next, dst_next
     cdef const uint8_t[:] row_view
-    result = np.empty((height, width), dtype=np.ubyte)
-    cdef uint8_t[:,:] result_view = result
     cdef uint8_t[:] result_row
+    cdef size_t width = result.shape[1]
+    cdef size_t data_size
 
     with nogil:
         for i in range(counts.shape[0]):
             count = counts[i]
             row_view = rows[row_offset:row_offset + count]
-            result_row = result_view[i]
+            result_row = result[i]
             src = 0
             dst = 0
             data_size = row_view.shape[0]
@@ -61,7 +61,9 @@ def decode_rle(data, width, height, depth, version):
     if sys.byteorder == 'little':
         counts.byteswap(inplace=True)
     rows = np.frombuffer(data, dtype=np.ubyte, offset=counts.nbytes)
-    return decode(counts.astype(np.uint32), rows, height, row_size)
+    result = np.empty((height, row_size), dtype=np.ubyte)
+    decode(counts.astype(np.uint32), rows, result)
+    return result
 
 def layer_numpy(layer:Layer, channel=None):
     if channel == 'mask' and not layer.mask:
