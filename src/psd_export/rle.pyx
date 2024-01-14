@@ -3,9 +3,6 @@ import sys
 from libc.string cimport memcpy, memset
 from libc.stdint cimport *
 import numpy as np
-import psd_tools.api.numpy_io as numpy_io
-import psd_tools.constants as ptc
-from psd_tools.api.layers import Layer
 
 # A more speed optimized RLE decode based on https://github.com/psd-tools/psd-tools/blob/main/src/psd_tools/compression/
 cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result):
@@ -64,48 +61,3 @@ def decode_rle(data, width, height, depth, version):
     result = np.empty((height, row_size), dtype=np.ubyte)
     decode(counts.astype(np.uint32), rows, result)
     return result
-
-def layer_numpy(layer:Layer, channel=None):
-    if channel == 'mask' and not layer.mask:
-        return None
-
-    depth = layer._psd.depth
-    version = layer._psd.version
-
-    def channel_matches(info):
-        if channel == 'color':
-            return info.id >= 0
-        if channel == 'shape':
-            return info.id == ptc.ChannelID.TRANSPARENCY_MASK
-        if channel == 'mask':
-            if not layer.mask:
-                return False
-            if layer.mask._has_real():
-                return info.id == ptc.ChannelID.REAL_USER_LAYER_MASK
-            else:
-                return info.id == ptc.ChannelID.USER_LAYER_MASK
-        else:
-            raise ValueError(f'Unknown channel type: {channel}')
-
-    channels = zip(layer._channels, layer._record.channel_info)
-    channels = [channel for channel, info in channels if channel_matches(info)]
-
-    if len(channels) == 0:
-        return None
-
-    # Use the psd-tools path if we are not decoding RLE
-    if not all([channel.compression == ptc.Compression.RLE for channel in channels]):
-        return layer.numpy(channel)
-
-    if channel == 'mask':
-        width, height = layer.mask.width, layer.mask.height
-    else:
-        width, height = layer.width, layer.height
-
-    decoded = []
-    for channel in channels:
-        data = decode_rle(channel.data, width, height, depth, version)
-        data = numpy_io._parse_array(data, depth)
-        decoded.append(data)
-
-    return np.stack(decoded, axis=1).reshape((height, width, -1))

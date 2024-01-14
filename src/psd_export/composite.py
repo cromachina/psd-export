@@ -414,7 +414,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             else:
                 if sublayer.layer.is_group():
                     # Un-multiply group composites so that we can multiply group opacity correctly
-                    await peval(lambda: util.clip_divide(color_src, alpha_src, out=color_src))
+                    await peval(lambda: blendfuncs.clip_divide(color_src, alpha_src, out=color_src))
 
                 if sublayer.clip_layers:
                     # Composite the clip layers now. This basically overwrites just the color by blending onto it without
@@ -441,13 +441,13 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
                     # Premultiplied blending may cause out-of-range values, so it must be clipped.
                     if blend_mode != BlendMode.NORMAL:
-                        util.clip(color_src, out=color_src)
+                        blendfuncs.clip(color_src, out=color_src)
 
                     # We apply the mask last and LERP the blended result onto the destination.
                     # Why? Because this is how Photoshop and SAI do it. Applying the mask before blending
                     # will yield a slightly different result from those programs.
                     if mask_src is not None:
-                        color_dst = util.lerp(color_dst, color_src, mask_src, out=color_src)
+                        color_dst = blendfuncs.lerp(color_dst, color_src, mask_src, out=color_src)
                     else:
                         color_dst = color_src
 

@@ -5,6 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 import psutil
+import psd_tools.api.numpy_io as numpy_io
+import psd_tools.constants as ptc
+from psd_tools.api.layers import Layer
+
+from . import rle
 
 file_writer_futures = []
 
@@ -20,28 +25,6 @@ def swap(a):
 
 def clamp(min_val, max_val, val):
     return max(min_val, min(max_val, val))
-
-def clip(val, out=None):
-    if np.isscalar(val):
-        out = None
-    return np.clip(val, 0, 1, out=out)
-
-def clip_in(val):
-    return clip(val, val)
-
-def safe_divide(a, b, out=None):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        eps = np.finfo(a.dtype).eps
-        return np.divide(a, b + eps, out=out)
-
-def clip_divide(a, b, out=None):
-    out = safe_divide(a, b, out=out)
-    return clip_in(out)
-
-def lerp(a, b, t, out=None):
-    out = np.subtract(b, a, out=out)
-    np.multiply(t, out, out=out)
-    return np.add(a, out, out=out)
 
 def full(shape, fill, dtype=None):
     if fill == 0:
@@ -76,10 +59,47 @@ async def save_workers_wait_all():
     await asyncio.gather(*file_writer_futures)
     file_writer_futures.clear()
 
-try:
-    from . import rle
-    def layer_numpy(layer, channel=None):
-        return rle.layer_numpy(layer, channel)
-except ImportError:
-    def layer_numpy(layer, channel=None):
+def layer_numpy(layer:Layer, channel=None):
+    if channel == 'mask' and not layer.mask:
+        return None
+
+    depth = layer._psd.depth
+    version = layer._psd.version
+
+    def channel_matches(info):
+        if channel == 'color':
+            return info.id >= 0
+        if channel == 'shape':
+            return info.id == ptc.ChannelID.TRANSPARENCY_MASK
+        if channel == 'mask':
+            if not layer.mask:
+                return False
+            if layer.mask._has_real():
+                return info.id == ptc.ChannelID.REAL_USER_LAYER_MASK
+            else:
+                return info.id == ptc.ChannelID.USER_LAYER_MASK
+        else:
+            raise ValueError(f'Unknown channel type: {channel}')
+
+    channels = zip(layer._channels, layer._record.channel_info)
+    channels = [channel for channel, info in channels if channel_matches(info)]
+
+    if len(channels) == 0:
+        return None
+
+    # Use the psd-tools path if we are not decoding RLE
+    if not all([channel.compression == ptc.Compression.RLE for channel in channels]):
         return layer.numpy(channel)
+
+    if channel == 'mask':
+        width, height = layer.mask.width, layer.mask.height
+    else:
+        width, height = layer.width, layer.height
+
+    decoded = []
+    for channel in channels:
+        data = rle.decode_rle(channel.data, width, height, depth, version)
+        data = numpy_io._parse_array(data, depth)
+        decoded.append(data)
+
+    return np.stack(decoded, axis=1).reshape((height, width, -1))
