@@ -16,6 +16,13 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 - Run `psd-export --help` for more command line arguments.
 
 ---
+### Building from source
+- Install a C compiler (like MSVC, GCC, Clang)
+- Install extra dependencies: `pip install cython setuptools`
+- Install this repository locally: `pip install -e .`
+- If you modify a Cython file (.pyx), then rebuild it with: `python setup.py build_ext --inplace`
+
+---
 ### Setting up the PSD
 
 #### Automatic Exporting
@@ -69,7 +76,7 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 In your own script:
 ```py
 # my-export.py
-from psd_export import (export, filters, util)
+from psd_export import (export, filters, util, blendfuncs)
 import numpy as np
 
 my_arg1_default = 1.0
@@ -84,7 +91,7 @@ def some_filter(color_dst, color_src, alpha_dst, alpha_src, arg1=None, arg2=100,
     arg1 = float(arg1)
     # Manipulate color and alpha numpy arrays, in-place if you want.
     color = np.subtract(arg1, color, out=color)
-    color = util.lerp(color_dst, color, alpha_src)
+    color = blendfuncs.lerp(color_dst, color, alpha_src)
     # Always return the same shaped arrays as a tuple:
     return color, alpha
 
@@ -159,14 +166,14 @@ After exporting:
 | Exclude | Pass |
 | Subtract | Pass |
 | Divide | Pass |
-| Hue | Pass |
+| Hue | Some incorrect values in certain conditions |
 | Saturation | Pass |
 | Color | Pass |
 | Luminosity | Pass |
 | [TS] Linear Burn (Shade) | Pass |
 | [TS] Linear Dodge (Shine) | Pass |
 | [TS] Linear Light (Shade/Shine) | Pass |
-| [TS] Color Burn (Burn) | Pass |
+| [TS] Color Burn (Burn) | Small precision error for near-black colors, can look slightly different from SAI |
 | [TS] Color Dodge (Dodge) | Pass |
 | [TS] Vivid Light (Burn/Dodge) | Pass |
 | [TS] Hard Mix | Small precision error for near-black colors, can look slightly different from SAI |
