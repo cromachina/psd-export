@@ -7,6 +7,8 @@ from psd_tools.constants import BlendMode
 # http://ssp.impulsetrain.com/porterduff.html
 # https://photoblogstop.com/photoshop/photoshop-blend-modes-explained
 
+ctypedef (double, double, double) Color
+
 cdef inline double _clip(double val) noexcept nogil:
     return max(min(val, 1), 0)
 
@@ -71,14 +73,14 @@ cdef inline double _premul(double Cd, double Cs, double Ad, double As, double(*n
     Aboth = As * Ad
     return _blend(Csp, Cdp, Asrc, Adst, Aboth, B)
 
-cdef inline (double, double, double) _premul_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As, (double, double, double)(*non_premul_func)(double, double, double, double, double, double) noexcept nogil) noexcept nogil:
-    Cdp_r = _clip_divide(Cd_r, Ad)
-    Cdp_g = _clip_divide(Cd_g, Ad)
-    Cdp_b = _clip_divide(Cd_b, Ad)
-    Csp_r = _clip_divide(Cs_r, As)
-    Csp_g = _clip_divide(Cs_g, As)
-    Csp_b = _clip_divide(Cs_b, As)
-    B_r, B_g, B_b = non_premul_func(Cdp_r, Cdp_g, Cdp_b, Csp_r, Csp_g, Csp_b)
+cdef inline Color _premul_nonsep(Color Cd, Color Cs, double Ad, double As, (Color)(*non_premul_func)(Color, Color) noexcept nogil) noexcept nogil:
+    Cdp_r = _clip_divide(Cd[0], Ad)
+    Cdp_g = _clip_divide(Cd[1], Ad)
+    Cdp_b = _clip_divide(Cd[2], Ad)
+    Csp_r = _clip_divide(Cs[0], As)
+    Csp_g = _clip_divide(Cs[1], As)
+    Csp_b = _clip_divide(Cs[2], As)
+    B_r, B_g, B_b = non_premul_func((Cdp_r, Cdp_g, Cdp_b), (Csp_r, Csp_g, Csp_b))
     Asrc = _comp(As, Ad)
     Adst = _comp(Ad, As)
     Aboth = As * Ad
@@ -296,70 +298,70 @@ cdef double subtract(double Cd, double Cs, double Ad, double As) nogil:
 cdef double divide(double Cd, double Cs, double Ad, double As) nogil:
     return _premul(Cd, Cs, Ad, As, _clip_divide)
 
-cdef inline double _lum(double C_r, double C_g, double C_b) noexcept nogil:
-    return 0.3 * C_r + 0.59 * C_g + 0.11 * C_b
+cdef inline double _lum(Color C) noexcept nogil:
+    return 0.3 * C[0] + 0.59 * C[1] + 0.11 * C[2]
 
-cdef inline (double, double, double) _clip_color(double C_r, double C_g, double C_b) noexcept nogil:
-    cdef double L = _lum(C_r, C_g, C_b)
-    cdef double n = min(C_r, C_g, C_b)
-    cdef double x = max(C_r, C_g, C_b)
-    cdef double C_rL = C_r - L
-    cdef double C_gL = C_g - L
-    cdef double C_bL = C_b - L
+cdef inline Color _clip_color(Color C) noexcept nogil:
+    cdef double L = _lum(C)
+    cdef double n = min(C[0], C[1], C[2])
+    cdef double x = max(C[0], C[1], C[2])
+    cdef double C_rL = C[0] - L
+    cdef double C_gL = C[1] - L
+    cdef double C_bL = C[2] - L
     if n < 0.0:
         Ln = L - n
-        C_r = L + _safe_divide(C_rL * L, Ln)
-        C_g = L + _safe_divide(C_gL * L, Ln)
-        C_b = L + _safe_divide(C_bL * L, Ln)
+        C[0] = L + _safe_divide(C_rL * L, Ln)
+        C[1] = L + _safe_divide(C_gL * L, Ln)
+        C[2] = L + _safe_divide(C_bL * L, Ln)
     if x > 1.0:
         L1 = 1.0 - L
         xL = x - L
-        C_r = L + _safe_divide(C_rL * L1, xL)
-        C_g = L + _safe_divide(C_gL * L1, xL)
-        C_b = L + _safe_divide(C_bL * L1, xL)
-    return C_r, C_g, C_b
+        C[0] = L + _safe_divide(C_rL * L1, xL)
+        C[1] = L + _safe_divide(C_gL * L1, xL)
+        C[2] = L + _safe_divide(C_bL * L1, xL)
+    return C
 
-cdef inline (double, double, double) _set_lum(double C_r, double C_g, double C_b, double L) noexcept nogil:
-    d = L - _lum(C_r, C_g, C_b)
-    C_r = C_r + d
-    C_b = C_b + d
-    C_g = C_g + d
-    return _clip_color(C_r, C_g, C_b)
+cdef inline Color _set_lum(Color C, double L) noexcept nogil:
+    d = L - _lum(C)
+    C[0] = C[0] + d
+    C[1] = C[1] + d
+    C[2] = C[2] + d
+    return _clip_color(C)
 
-cdef inline double _sat(double C_r, double C_g, double C_b) noexcept nogil:
-    return max(C_r, C_g, C_b) - min(C_r, C_g, C_b)
+cdef inline double _sat(Color C) noexcept nogil:
+    return max(C[0], C[1], C[2]) - min(C[0], C[1], C[2])
 
-cdef inline (double, double, double) _set_sat(double C_r, double C_g, double C_b, double S) noexcept nogil:
-    cdef double amax = max(C_r, C_g, C_b)
-    cdef double amin = min(C_r, C_g, C_b)
+cdef inline Color _set_sat(Color C, double S) noexcept nogil:
+    cdef double amax = max(C[0], C[1], C[2])
+    cdef double amin = min(C[0], C[1], C[2])
     cdef double amid
     cdef double* cmax
     cdef double* cmid
     cdef double* cmin
-    if amax == C_r:
-        cmax = &C_r
-        if amin == C_g:
-            cmin = &C_g
-            cmid = &C_b
+    if amax == C[0]:
+        cmax = &C[0]
+        if amin == C[1]:
+            cmin = &C[1]
+            cmid = &C[2]
         else:
-            cmin = &C_b
-            cmid = &C_g
-    elif amax == C_g:
-        cmax = &C_g
-        if amin == C_r:
-            cmin = &C_r
-            cmid = &C_b
+            cmin = &C[2]
+            cmid = &C[1]
+    elif amax == C[1]:
+        cmax = &C[1]
+        if amin == C[0]:
+            cmin = &C[0]
+            cmid = &C[2]
         else:
-            cmin = &C_b
-            cmid = &C_r
+            cmin = &C[2]
+            cmid = &C[0]
     else:
-        cmax = &C_b
-        if amin == C_r:
-            cmin = &C_r
-            cmid = &C_g
+        cmax = &C[2]
+        if amin == C[0]:
+            cmin = &C[0]
+            cmid = &C[1]
         else:
-            cmin = &C_g
-            cmid = &C_r
+            cmin = &C[1]
+            cmid = &C[0]
     amid = cmid[0]
     if amax > amin:
         cmid[0] = _safe_divide((amid - amin) * S, amax - amin)
@@ -368,79 +370,67 @@ cdef inline (double, double, double) _set_sat(double C_r, double C_g, double C_b
         cmid[0] = 0
         cmax[0] = 0
     cmin[0] = 0
-    return (C_r, C_g, C_b)
+    return (C[0], C[1], C[2])
 
-cdef inline (double, double, double) _hue(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double S = _sat(Cd_r, Cd_g, Cd_b)
-    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
-    t_r, t_g, t_b = _set_sat(Cs_r, Cs_g, Cs_b, S)
-    return _set_lum(t_r, t_g, t_b, L)
+cdef inline Color _hue(Color Cd, Color Cs) noexcept nogil:
+    return _set_lum(_set_sat(Cs, _sat(Cd)), _lum(Cd))
 
 # TODO: Bug: 0 sat sources produce 0 sat results, but in SAI the hue result is red.
 # However, technically it seems like this is correct according to PDF documentation.
 @cython.ufunc
-cdef (double, double, double) hue_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _hue)
+cdef Color hue_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _hue)
 
 hue = nonsep(hue_nonsep)
 
-cdef inline (double, double, double) _saturation(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double S = _sat(Cs_r, Cs_g, Cs_b)
-    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
-    t_r, t_g, t_b = _set_sat(Cd_r, Cd_g, Cd_b, S)
-    return _set_lum(t_r, t_g, t_b, L)
+cdef inline Color _saturation(Color Cd, Color Cs) noexcept nogil:
+    return _set_lum(_set_sat(Cd, _sat(Cs)), _lum(Cd))
 
 @cython.ufunc
-cdef (double, double, double) saturation_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _saturation)
+cdef Color saturation_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _saturation)
 
 saturation = nonsep(saturation_nonsep)
 
-cdef inline (double, double, double) _color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
-    return _set_lum(Cs_r, Cs_g, Cs_b, L)
+cdef inline Color _color(Color Cd, Color Cs) noexcept nogil:
+    return _set_lum(Cs, _lum(Cd))
 
 @cython.ufunc
-cdef (double, double, double) color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _color)
+cdef Color color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _color)
 
 color = nonsep(color_nonsep)
 
-cdef inline (double, double, double) _luminosity(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double L = _lum(Cs_r, Cs_g, Cs_b)
-    return _set_lum(Cd_r, Cd_g, Cd_b, L)
+cdef inline Color _luminosity(Color Cd, Color Cs) noexcept nogil:
+    return _set_lum(Cd, _lum(Cs))
 
 @cython.ufunc
-cdef (double, double, double) luminosity_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _luminosity)
+cdef Color luminosity_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _luminosity)
 
 luminosity = nonsep(luminosity_nonsep)
 
-cdef inline (double, double, double) _darker_color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double Cd_L = _lum(Cd_r, Cd_g, Cd_b)
-    cdef double Cs_L = _lum(Cs_r, Cs_g, Cs_b)
-    if Cs_L < Cd_L:
-        return (Cs_r, Cs_g, Cs_b)
+cdef inline Color _darker_color(Color Cd, Color Cs) noexcept nogil:
+    if _lum(Cs) < _lum(Cd):
+        return Cs
     else:
-        return (Cd_r, Cd_g, Cd_b)
+        return Cd
 
 @cython.ufunc
-cdef (double, double, double) darker_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _darker_color)
+cdef Color darker_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _darker_color)
 
 darker_color = nonsep(darker_color_nonsep)
 
-cdef inline (double, double, double) _lighter_color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
-    cdef double Cd_L = _lum(Cd_r, Cd_g, Cd_b)
-    cdef double Cs_L = _lum(Cs_r, Cs_g, Cs_b)
-    if Cs_L > Cd_L:
-        return (Cs_r, Cs_g, Cs_b)
+cdef inline Color _lighter_color(Color Cd, Color Cs) noexcept nogil:
+    if _lum(Cs) > _lum(Cd):
+        return Cs
     else:
-        return (Cd_r, Cd_g, Cd_b)
+        return Cd
 
 @cython.ufunc
-cdef (double, double, double) lighter_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
-    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _lighter_color)
+cdef Color lighter_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _lighter_color)
 
 lighter_color = nonsep(lighter_color_nonsep)
 
