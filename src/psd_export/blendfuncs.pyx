@@ -59,6 +59,9 @@ cdef double normal(double Cd, double Cs, double Ad, double As) nogil:
 cdef double normal_alpha(double Ad, double As) nogil:
     return Ad + As - Ad * As
 
+cdef inline double _blend(double Csp, double Cdp, double Asrc, double Adst, double Aboth, double B) noexcept nogil:
+    return Csp * Asrc + Cdp * Adst + Aboth * B
+
 cdef inline double _premul(double Cd, double Cs, double Ad, double As, double(*non_premul_func)(double, double) noexcept nogil) noexcept nogil:
     Cdp = _clip_divide(Cd, Ad)
     Csp = _clip_divide(Cs, As)
@@ -66,7 +69,33 @@ cdef inline double _premul(double Cd, double Cs, double Ad, double As, double(*n
     Asrc = _comp(As, Ad)
     Adst = _comp(Ad, As)
     Aboth = As * Ad
-    return Csp * Asrc + Cdp * Adst + Aboth * B
+    return _blend(Csp, Cdp, Asrc, Adst, Aboth, B)
+
+cdef inline (double, double, double) _premul_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As, (double, double, double)(*non_premul_func)(double, double, double, double, double, double) noexcept nogil) noexcept nogil:
+    Cdp_r = _clip_divide(Cd_r, Ad)
+    Cdp_g = _clip_divide(Cd_g, Ad)
+    Cdp_b = _clip_divide(Cd_b, Ad)
+    Csp_r = _clip_divide(Cs_r, As)
+    Csp_g = _clip_divide(Cs_g, As)
+    Csp_b = _clip_divide(Cs_b, As)
+    B_r, B_g, B_b = non_premul_func(Cdp_r, Cdp_g, Cdp_b, Csp_r, Csp_g, Csp_b)
+    Asrc = _comp(As, Ad)
+    Adst = _comp(Ad, As)
+    Aboth = As * Ad
+    B_r = _blend(Csp_r, Cdp_r, Asrc, Adst, Aboth, B_r)
+    B_g = _blend(Csp_g, Cdp_g, Asrc, Adst, Aboth, B_g)
+    B_b = _blend(Csp_b, Cdp_b, Asrc, Adst, Aboth, B_b)
+    return B_r, B_g, B_b
+
+def ensure_array(D, S):
+    return np.full_like(S, D) if np.isscalar(D) else D
+
+def nonsep(func):
+    def wrap(Cd, Cs, Ad, As):
+        Cd = ensure_array(Cd, Cs)
+        Ad = ensure_array(Ad, As)
+        return np.dstack(func(Cd[:,:,0], Cd[:,:,1], Cd[:,:,2], Cs[:,:,0], Cs[:,:,1], Cs[:,:,2], Ad.reshape(Ad.shape[:-1]), As.reshape(As.shape[:-1])))
+    return wrap
 
 @cython.ufunc
 cdef double multiply(double Cd, double Cs, double Ad, double As) nogil:
@@ -245,37 +274,6 @@ cdef double darken(double Cd, double Cs, double Ad, double As) nogil:
 cdef double lighten(double Cd, double Cs, double Ad, double As) nogil:
     return max(Cs * Ad, Cd * As) + _comp2(Cd, Cs, Ad, As)
 
-def ensure_array(D, S):
-    return np.full_like(S, D) if np.isscalar(D) else D
-
-# Premul for nonseperable blendfuncs.
-def premul(non_premul_func):
-    def to_premul(Cd, Cs, Ad, As):
-        Cd = ensure_array(Cd, Cs)
-        Ad = ensure_array(Ad, As)
-        Cdp = clip_divide(Cd, Ad)
-        Csp = clip_divide(Cs, As)
-        B = non_premul_func(Cdp, Csp)
-        Asrc = comp(As, Ad)
-        Adst = comp(Ad, As)
-        Aboth = As * Ad
-        return Csp * Asrc + Cdp * Adst + Aboth * B
-    return to_premul
-
-@premul
-def darker_color(Cd, Cs):
-    index = lum(Cs) < lum(Cd)
-    B = Cd.copy()
-    B[index] = Cs[index]
-    return B
-
-@premul
-def lighter_color(Cd, Cs):
-    index = lum(Cs) > lum(Cd)
-    B = Cd.copy()
-    B[index] = Cs[index]
-    return B
-
 @cython.ufunc
 cdef double ts_difference(double Cd, double Cs, double Ad, double As) nogil:
     return Cs + Cd - 2 * min(Cd * As, Cs * Ad)
@@ -298,59 +296,153 @@ cdef double subtract(double Cd, double Cs, double Ad, double As) nogil:
 cdef double divide(double Cd, double Cs, double Ad, double As) nogil:
     return _premul(Cd, Cs, Ad, As, _clip_divide)
 
-def lum(C):
-    return np.repeat(np.sum((0.3, 0.59, 0.11) * C, axis=2, keepdims=True), repeats=3, axis=2)
+cdef inline double _lum(double C_r, double C_g, double C_b) noexcept nogil:
+    return 0.3 * C_r + 0.59 * C_g + 0.11 * C_b
 
-def clip_color(C):
-    L = lum(C)
-    C_min = np.repeat(np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
-    C_max = np.repeat(np.max(C, axis=2, keepdims=True), repeats=3, axis=2)
-    i_min = C_min < 0.0
-    i_max = C_max > 1.0
-    L_min = L[i_min]
-    L_max = L[i_max]
-    C[i_min] = L_min + (C[i_min] - L_min) * L_min / (L_min - C_min[i_min])
-    C[i_max] = L_max + (C[i_max] - L_max) * (1 - L_max) / (C_max[i_max] - L_max)
-    return C
+cdef inline (double, double, double) _clip_color(double C_r, double C_g, double C_b) noexcept nogil:
+    cdef double L = _lum(C_r, C_g, C_b)
+    cdef double n = min(C_r, C_g, C_b)
+    cdef double x = max(C_r, C_g, C_b)
+    cdef double C_rL = C_r - L
+    cdef double C_gL = C_g - L
+    cdef double C_bL = C_b - L
+    if n < 0.0:
+        Ln = L - n
+        C_r = L + _safe_divide(C_rL * L, Ln)
+        C_g = L + _safe_divide(C_gL * L, Ln)
+        C_b = L + _safe_divide(C_bL * L, Ln)
+    if x > 1.0:
+        L1 = 1.0 - L
+        xL = x - L
+        C_r = L + _safe_divide(C_rL * L1, xL)
+        C_g = L + _safe_divide(C_gL * L1, xL)
+        C_b = L + _safe_divide(C_bL * L1, xL)
+    return C_r, C_g, C_b
 
-def set_lum(C, L):
-    return clip_color(C + (L - lum(C)))
+cdef inline (double, double, double) _set_lum(double C_r, double C_g, double C_b, double L) noexcept nogil:
+    d = L - _lum(C_r, C_g, C_b)
+    C_r = C_r + d
+    C_b = C_b + d
+    C_g = C_g + d
+    return _clip_color(C_r, C_g, C_b)
 
-def sat(C):
-    return np.repeat(np.max(C, axis=2, keepdims=True) - np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
+cdef inline double _sat(double C_r, double C_g, double C_b) noexcept nogil:
+    return max(C_r, C_g, C_b) - min(C_r, C_g, C_b)
 
-def set_sat(C, S):
-    C_max = np.repeat(np.max(C, axis=2, keepdims=True), repeats=3, axis=2)
-    C_mid = np.repeat(np.median(C, axis=2, keepdims=True), repeats=3, axis=2)
-    C_min = np.repeat(np.min(C, axis=2, keepdims=True), repeats=3, axis=2)
-    i_diff = C_max > C_min
-    i_mid = C == C_mid
-    i_max = (C == C_max) & ~i_mid
-    i_min = C == C_min
-    C = np.zeros_like(C)
-    C[i_diff & i_mid] = safe_divide((C_mid - C_min) * S, (C_max - C_min))[i_diff & i_mid]
-    C[i_diff & i_max] = S[i_diff & i_max]
-    C[~i_diff & i_mid] = 0
-    C[~i_diff & i_max] = 0
-    C[i_min] = 0
-    return C
+cdef inline (double, double, double) _set_sat(double C_r, double C_g, double C_b, double S) noexcept nogil:
+    cdef double amax = max(C_r, C_g, C_b)
+    cdef double amin = min(C_r, C_g, C_b)
+    cdef double amid
+    cdef double* cmax
+    cdef double* cmid
+    cdef double* cmin
+    if amax == C_r:
+        cmax = &C_r
+        if amin == C_g:
+            cmin = &C_g
+            cmid = &C_b
+        else:
+            cmin = &C_b
+            cmid = &C_g
+    elif amax == C_g:
+        cmax = &C_g
+        if amin == C_r:
+            cmin = &C_r
+            cmid = &C_b
+        else:
+            cmin = &C_b
+            cmid = &C_r
+    else:
+        cmax = &C_b
+        if amin == C_r:
+            cmin = &C_r
+            cmid = &C_g
+        else:
+            cmin = &C_g
+            cmid = &C_r
+    amid = cmid[0]
+    if amax > amin:
+        cmid[0] = _safe_divide((amid - amin) * S, amax - amin)
+        cmax[0] = S
+    else:
+        cmid[0] = 0
+        cmax[0] = 0
+    cmin[0] = 0
+    return (C_r, C_g, C_b)
 
-# Small errors
-@premul
-def hue(Cd, Cs):
-    return set_lum(set_sat(Cs, sat(Cd)), lum(Cd))
+cdef inline (double, double, double) _hue(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double S = _sat(Cd_r, Cd_g, Cd_b)
+    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
+    t_r, t_g, t_b = _set_sat(Cs_r, Cs_g, Cs_b, S)
+    return _set_lum(t_r, t_g, t_b, L)
 
-@premul
-def saturation(Cd, Cs):
-    return set_lum(set_sat(Cd, sat(Cs)), lum(Cd))
+# TODO: Bug: 0 sat sources produce 0 sat results, but in SAI the hue result is red.
+# However, technically it seems like this is correct according to PDF documentation.
+@cython.ufunc
+cdef (double, double, double) hue_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _hue)
 
-@premul
-def color(Cd, Cs):
-    return set_lum(Cs, lum(Cd))
+hue = nonsep(hue_nonsep)
 
-@premul
-def luminosity(Cd, Cs):
-    return set_lum(Cd, lum(Cs))
+cdef inline (double, double, double) _saturation(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double S = _sat(Cs_r, Cs_g, Cs_b)
+    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
+    t_r, t_g, t_b = _set_sat(Cd_r, Cd_g, Cd_b, S)
+    return _set_lum(t_r, t_g, t_b, L)
+
+@cython.ufunc
+cdef (double, double, double) saturation_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _saturation)
+
+saturation = nonsep(saturation_nonsep)
+
+cdef inline (double, double, double) _color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double L = _lum(Cd_r, Cd_g, Cd_b)
+    return _set_lum(Cs_r, Cs_g, Cs_b, L)
+
+@cython.ufunc
+cdef (double, double, double) color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _color)
+
+color = nonsep(color_nonsep)
+
+cdef inline (double, double, double) _luminosity(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double L = _lum(Cs_r, Cs_g, Cs_b)
+    return _set_lum(Cd_r, Cd_g, Cd_b, L)
+
+@cython.ufunc
+cdef (double, double, double) luminosity_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _luminosity)
+
+luminosity = nonsep(luminosity_nonsep)
+
+cdef inline (double, double, double) _darker_color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double Cd_L = _lum(Cd_r, Cd_g, Cd_b)
+    cdef double Cs_L = _lum(Cs_r, Cs_g, Cs_b)
+    if Cs_L < Cd_L:
+        return (Cs_r, Cs_g, Cs_b)
+    else:
+        return (Cd_r, Cd_g, Cd_b)
+
+@cython.ufunc
+cdef (double, double, double) darker_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _darker_color)
+
+darker_color = nonsep(darker_color_nonsep)
+
+cdef inline (double, double, double) _lighter_color(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b) noexcept nogil:
+    cdef double Cd_L = _lum(Cd_r, Cd_g, Cd_b)
+    cdef double Cs_L = _lum(Cs_r, Cs_g, Cs_b)
+    if Cs_L > Cd_L:
+        return (Cs_r, Cs_g, Cs_b)
+    else:
+        return (Cd_r, Cd_g, Cd_b)
+
+@cython.ufunc
+cdef (double, double, double) lighter_color_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
+    return _premul_nonsep(Cd_r, Cd_g, Cd_b, Cs_r, Cs_g, Cs_b, Ad, As, _lighter_color)
+
+lighter_color = nonsep(lighter_color_nonsep)
 
 blend_modes = {
     BlendMode.NORMAL: normal,
