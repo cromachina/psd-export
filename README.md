@@ -18,7 +18,7 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 ---
 ### Building from source
 - Install a C compiler (like MSVC, GCC, Clang)
-- Install extra dependencies: `pip install cython setuptools`
+- Install extra dependencies: `pip install setuptools wheel cython numpy`
 - Install this repository locally: `pip install -e .`
 - If you modify a Cython file (.pyx), then rebuild it with: `python setup.py build_ext --inplace`
 
