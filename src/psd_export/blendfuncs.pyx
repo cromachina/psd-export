@@ -373,10 +373,10 @@ cdef inline Color _set_sat(Color C, double S) noexcept nogil:
     return (C[0], C[1], C[2])
 
 cdef inline Color _hue(Color Cd, Color Cs) noexcept nogil:
+    if Cs[0] == Cs[1] and Cs[0] == Cs[2]:
+        Cs[0] = Cs[0] + eps
     return _set_lum(_set_sat(Cs, _sat(Cd)), _lum(Cd))
 
-# TODO: Bug: 0 sat sources produce 0 sat results, but in SAI the hue result is red.
-# However, technically it seems like this is correct according to PDF documentation.
 @cython.ufunc
 cdef Color hue_nonsep(double Cd_r, double Cd_g, double Cd_b, double Cs_r, double Cs_g, double Cs_b, double Ad, double As) nogil:
     return _premul_nonsep((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, _hue)

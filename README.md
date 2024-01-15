@@ -166,7 +166,7 @@ After exporting:
 | Exclude | Pass |
 | Subtract | Pass |
 | Divide | Pass |
-| Hue | Some incorrect values in certain conditions |
+| Hue | Pass |
 | Saturation | Pass |
 | Color | Pass |
 | Luminosity | Pass |
