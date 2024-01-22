@@ -9,7 +9,7 @@ import psd_tools.api.numpy_io as numpy_io
 import psd_tools.constants as ptc
 from psd_tools.api.layers import Layer
 
-from . import rle
+from . import rle, blendfuncs
 
 file_writer_futures = []
 
@@ -18,6 +18,21 @@ pool = ThreadPoolExecutor(max_workers=worker_count)
 
 def peval(func):
     return asyncio.get_running_loop().run_in_executor(pool, func)
+
+# This is only meant to be used in filters.
+def parallel_lerp(a, b, t, out=None):
+    if out is None:
+        out = np.empty_like(a)
+    aa = np.array_split(a, worker_count)
+    bb = np.array_split(b, worker_count)
+    tt = np.array_split(t, worker_count)
+    oo = np.array_split(out, worker_count)
+    tasks = []
+    for ai, bi, ti, oi in zip(aa, bb, tt, oo):
+        tasks.append(pool.submit(blendfuncs.lerp, ai, bi, ti, out=oi))
+    for task in tasks:
+        task.result()
+    return out
 
 def swap(a):
     x, y = a

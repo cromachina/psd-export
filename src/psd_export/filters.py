@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from . import util, blendfuncs
+from . import util
 
 filter_names = {}
 
@@ -39,11 +39,11 @@ def mosaic_op(color_dst, color_src, alpha_dst, alpha_src, mosaic_factor=None, ap
         mosaic_factor = mosaic_factor_default
     mosaic_factor = int(mosaic_factor)
     color = mosaic(color_dst, mosaic_factor)
-    color = blendfuncs.lerp(color_dst, color, alpha_src)
+    color = util.parallel_lerp(color_dst, color, alpha_src)
     alpha = alpha_dst
     if apply_to_alpha:
         alpha = mosaic(alpha_dst, mosaic_factor)
-        alpha = blendfuncs.lerp(alpha_dst, alpha, alpha_src)
+        alpha = util.parallel_lerp(alpha_dst, alpha, alpha_src)
     return color, alpha
 
 @filter('blur')
@@ -51,8 +51,8 @@ def blur_op(color_dst, color_src, alpha_dst, alpha_src, size=50, *_):
     size = float(size)
     color = cv2.GaussianBlur(color_dst, ksize=(0, 0), sigmaX=size, borderType=cv2.BORDER_REPLICATE)
     alpha = cv2.GaussianBlur(alpha_dst, ksize=(0, 0), sigmaX=size, borderType=cv2.BORDER_REPLICATE).reshape(alpha_src.shape)
-    color = blendfuncs.lerp(color_dst, color, alpha_src)
-    alpha = blendfuncs.lerp(alpha_dst, alpha, alpha_src)
+    color = util.parallel_lerp(color_dst, color, alpha_src)
+    alpha = util.parallel_lerp(alpha_dst, alpha, alpha_src)
     return color, alpha
 
 def motion_blur(data, angle, size):
@@ -69,6 +69,6 @@ def motion_blur_op(color_dst, color_src, alpha_dst, alpha_src, angle=0, size=50,
     size = int(size)
     color = motion_blur(color_dst, angle, size)
     alpha = motion_blur(alpha_dst, angle, size).reshape(alpha_src.shape)
-    color = blendfuncs.lerp(color_dst, color, alpha_src)
-    alpha = blendfuncs.lerp(alpha_dst, alpha, alpha_src)
+    color = util.parallel_lerp(color_dst, color, alpha_src)
+    alpha = util.parallel_lerp(alpha_dst, alpha, alpha_src)
     return color, alpha
