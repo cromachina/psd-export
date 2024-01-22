@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
-import threading
 from collections import Counter
 
 import cv2
@@ -30,7 +29,7 @@ class WrappedLayer():
         self.composite_cache = {}
         self.composite_cache_counter = Counter()
         self.data_cache = {}
-        self.data_cache_lock = threading.Lock()
+        self.data_cache_lock = asyncio.Lock()
         self.data_cache_counter = 0
         self.tags = []
         self.visibility_dependency = None
@@ -213,10 +212,10 @@ def clear_count_mode(layer:WrappedLayer):
     for sublayer in layer.descendants():
         sublayer.composite_cache.clear()
 
-def get_cached_layer_data(layer:WrappedLayer, channel):
-    with layer.data_cache_lock:
+async def get_cached_layer_data(layer:WrappedLayer, channel):
+    async with layer.data_cache_lock:
         if channel not in layer.data_cache:
-            data = util.layer_numpy(layer.layer, channel)
+            data = await util.layer_numpy(layer.layer, channel)
             if data is not None:
                 data = data.astype(dtype, copy=False)
             layer.data_cache[channel] = data
@@ -224,13 +223,15 @@ def get_cached_layer_data(layer:WrappedLayer, channel):
         return layer.data_cache[channel]
 
 async def get_padded_data(layer:WrappedLayer, channel, size, offset, data_offset, fill=0.0):
-    data = await peval(lambda: get_cached_layer_data(layer, channel))
+    data = await get_cached_layer_data(layer, channel)
     if data is None:
         return None
     shape = size + data.shape[2:]
-    pad = await peval(lambda: util.full(shape, fill, dtype=dtype))
-    await peval(lambda: blit(pad, data, np.array(util.swap(data_offset)) - np.array(offset)))
-    return pad
+    def task():
+        pad = util.full(shape, fill, dtype=dtype)
+        blit(pad, data, np.array(util.swap(data_offset)) - np.array(offset))
+        return pad
+    return await peval(task)
 
 def intersection(a, b):
     return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
@@ -248,7 +249,7 @@ def has_tile_data(layer:Layer, size, offset):
     return is_intersecting(layer.bbox, make_bbox(size, offset))
 
 async def is_zero_alpha(layer:WrappedLayer, size, offset):
-    data = await peval(lambda: get_cached_layer_data(layer, 'shape'))
+    data = await get_cached_layer_data(layer, 'shape')
     if data is None:
         return False
     bbox = intersection(layer.layer.bbox, make_bbox(size, offset))

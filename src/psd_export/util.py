@@ -59,7 +59,7 @@ async def save_workers_wait_all():
     await asyncio.gather(*file_writer_futures)
     file_writer_futures.clear()
 
-def layer_numpy(layer:Layer, channel=None):
+async def layer_numpy(layer:Layer, channel=None):
     if channel == 'mask' and not layer.mask:
         return None
 
@@ -89,7 +89,7 @@ def layer_numpy(layer:Layer, channel=None):
 
     # Use the psd-tools path if we are not decoding RLE
     if not all([channel.compression == ptc.Compression.RLE for channel in channels]):
-        return layer.numpy(channel)
+        return await peval(lambda: layer.numpy(channel))
 
     if channel == 'mask':
         width, height = layer.mask.width, layer.mask.height
@@ -98,8 +98,7 @@ def layer_numpy(layer:Layer, channel=None):
 
     decoded = []
     for channel in channels:
-        data = rle.decode_rle(channel.data, width, height, depth, version)
-        data = numpy_io._parse_array(data, depth)
-        decoded.append(data)
+        decoded.append(peval(lambda channel=channel: numpy_io._parse_array(rle.decode_rle(channel.data, width, height, depth, version), depth)))
+    decoded = await asyncio.gather(*decoded)
 
-    return np.stack(decoded, axis=1).reshape((height, width, -1))
+    return await peval(lambda: np.stack(decoded, axis=1).reshape((height, width, -1)))
