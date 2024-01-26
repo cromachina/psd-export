@@ -379,8 +379,12 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     async with sublayer.custom_op_condition:
                         await sublayer.custom_op_condition.wait_for(lambda: sublayer.custom_op_finished)
                 neg_offset = -np.array(offset)
-                await peval(lambda: blit(color_dst, sublayer.custom_op_color_dst, neg_offset))
-                await peval(lambda: blit(alpha_dst, sublayer.custom_op_alpha_dst, neg_offset))
+                def finish_op():
+                    blit(color_dst, sublayer.custom_op_color_dst, neg_offset)
+                    blit(alpha_dst, sublayer.custom_op_alpha_dst, neg_offset)
+                    blendfuncs.clip(color_dst, out=color_dst)
+                    blendfuncs.clip(alpha_dst, out=alpha_dst)
+                await peval(finish_op)
                 if not is_counter_zero(sublayer):
                     set_cached_composite(sublayer, offset, (color_dst, alpha_dst))
                 continue
@@ -438,7 +442,8 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
                     # Run the blend operation.
                     blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
-                    color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
 
                     # Premultiplied blending may cause out-of-range values, so it must be clipped.
                     if blend_mode != BlendMode.NORMAL:

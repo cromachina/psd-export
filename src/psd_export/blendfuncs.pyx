@@ -22,15 +22,23 @@ cdef inline double _safe_divide(double a, double b) noexcept nogil:
     return a / (b + eps)
 
 @cython.ufunc
-cdef double safe_divide(double a, double b) noexcept nogil:
-    return _safe_divide(a, b)
+cdef double safe_divide_ufunc(double a, double b) noexcept nogil:
+        return _safe_divide(a, b)
+
+def safe_divide(a, b, /, **kwargs):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return safe_divide_ufunc(a, b, **kwargs)
 
 cdef inline double _clip_divide(double a, double b) noexcept nogil:
     return _clip(_safe_divide(a, b))
 
 @cython.ufunc
-cdef double clip_divide(double a, double b) noexcept nogil:
+cdef double clip_divide_ufunc(double a, double b) noexcept nogil:
     return _clip_divide(a, b)
+
+def clip_divide(a, b, /, **kwargs):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return clip_divide_ufunc(a, b, **kwargs)
 
 cdef inline double _comp(double C, double A) noexcept nogil:
     return C * (1 - A)
