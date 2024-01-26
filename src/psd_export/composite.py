@@ -414,8 +414,11 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     color_dst = color_src
                     alpha_dst = alpha_src
                 else:
-                    color_dst = await peval(lambda: util.lerp(color_dst, color_src, mask_src, out=color_src))
-                    alpha_dst = await peval(lambda: util.lerp(alpha_dst, alpha_src, mask_src, out=alpha_src))
+                    def pass_lerp():
+                        nonlocal color_dst, alpha_dst
+                        color_dst = blendfuncs.lerp(color_dst, color_src, mask_src, out=color_src)
+                        alpha_dst = blendfuncs.lerp(alpha_dst, alpha_src, mask_src, out=alpha_src)
+                    await peval(pass_lerp)
             else:
                 if sublayer.layer.is_group():
                     # Un-multiply group composites so that we can multiply group opacity correctly
