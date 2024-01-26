@@ -15,24 +15,32 @@ file_writer_futures = []
 
 worker_count = psutil.cpu_count(False)
 pool = ThreadPoolExecutor(max_workers=worker_count)
+# Separate pool for parallel_ufunc so we don't accidentally deadlock peval.
+par_pool = ThreadPoolExecutor(max_workers=worker_count)
 
 def peval(func):
     return asyncio.get_running_loop().run_in_executor(pool, func)
 
-# This is only meant to be used in filters.
-def parallel_lerp(a, b, t, out=None):
-    if out is None:
-        out = np.empty_like(a)
-    aa = np.array_split(a, worker_count)
-    bb = np.array_split(b, worker_count)
-    tt = np.array_split(t, worker_count)
-    oo = np.array_split(out, worker_count)
+def zip_dict(adict):
+    keys = adict.keys()
+    for slices in zip(*adict.values()):
+        yield {k: v for k, v in zip(keys, slices)}
+
+def parallel_ufunc(op, *args, **kwargs):
+    assert len(args) > 0
+    if kwargs.get('out') is None:
+        kwargs['out'] = np.empty_like(args[0])
+    argslices = [np.array_split(arg, worker_count) for arg in args]
+    kwslices = {k: np.array_split(v, worker_count) for k, v in kwargs.items()}
     tasks = []
-    for ai, bi, ti, oi in zip(aa, bb, tt, oo):
-        tasks.append(pool.submit(blendfuncs.lerp, ai, bi, ti, out=oi))
+    for argslice, kwslice in zip(zip(*argslices), zip_dict(kwslices)):
+        tasks.append(par_pool.submit(op, *argslice, **kwslice))
     for task in tasks:
         task.result()
-    return out
+    return kwargs['out']
+
+def parallel_lerp(a, b, t, out=None):
+    return parallel_ufunc(blendfuncs.lerp, a, b, t, out=out)
 
 def swap(a):
     x, y = a
