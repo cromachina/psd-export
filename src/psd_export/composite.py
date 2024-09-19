@@ -427,10 +427,10 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 if sublayer.clip_layers:
                     # Composite the clip layers now. This basically overwrites just the color by blending onto it without
                     # alpha blending it first.
-                    clip_src = await peval(lambda: np.multiply(color_src, alpha_src))
-                    clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (clip_src, alpha_src.copy()))
+                    corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
+                    clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
                     if clip_src is not None:
-                        color_src = await peval(lambda: blendfuncs.clip_divide(clip_src, alpha_src))
+                        color_src = clip_src
 
                 mask_src = await get_mask_data(sublayer, size, offset)
 
