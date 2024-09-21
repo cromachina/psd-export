@@ -83,7 +83,7 @@ async def save_workers_wait_all():
     file_writer_futures.clear()
 
 async def layer_numpy(layer:Layer, channel=None):
-    if channel == 'mask' and not layer.mask:
+    if channel == 'mask' and (not layer.mask or layer.mask.size == (0, 0)):
         return None
 
     depth = layer._psd.depth
