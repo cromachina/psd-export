@@ -224,7 +224,9 @@ async def async_main():
     args = arg_parser.parse_args()
     filters.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
-    for file_name in glob.iglob(args.file_name):
+    files = list(glob.iglob(args.file_name))
+    files.sort()
+    for file_name in files:
         await export_all_variants(file_name, args)
     await util.save_workers_wait_all()
     logging.info(f'export time: {time.perf_counter() - start}')
