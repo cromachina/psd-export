@@ -36,7 +36,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        build: [cp*]
     steps:
       - uses: actions/checkout@v4
 
@@ -54,13 +53,13 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_BUILD: ${{ matrix.build }}-*
+          CIBW_BUILD: cp*-*
           CIBW_ARCHS_LINUX: auto aarch64
           CIBW_ARCHS_MACOS: x86_64 arm64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.build }}
+          name: wheel-${{ matrix.os }}
           path: ./wheelhouse/*.whl
 
   deploy:
