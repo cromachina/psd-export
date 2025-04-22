@@ -1,24 +1,14 @@
 [build-system]
-requires = ["setuptools", "wheel", "cython", "numpy"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core", "wheel", "cython", "numpy"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "psd-export"
 version = "1.0.33"
-authors = [
-    { name = "cromachina" }
-]
-license = { file = "LICENSE" }
+authors = ["cromachina"]
+license = "MIT"
 description = "Fast exporting of PSDs with [tagged] layers for variants."
 readme = "README.md"
-requires-python = ">=3.11.2"
-dependencies = [
-    'numpy',
-    'opencv_python',
-    'psd_tools',
-    'psutil',
-    'pyrsistent',
-]
 keywords = ["exporter", "psd", "art"]
 classifiers = [
     'Intended Audience :: End Users/Desktop',
@@ -29,15 +19,21 @@ classifiers = [
     'Topic :: Multimedia :: Graphics',
     'Topic :: Multimedia :: Graphics :: Graphics Conversion',
 ]
+packages = [
+    { include = "src/psd_export" }
+]
+build = 'build.py'
 
-[project.urls]
+[tool.poetry.dependencies]
+python = "^3.11.2"
+numpy = "*"
+opencv_python = "*"
+psd_tools = "*"
+psutil = "*"
+pyrsistent = "*"
+
+[tool.poetry.urls]
 "Homepage" = "https://github.com/cromachina/psd-export"
 
-[project.scripts]
-psd-export = "psd_export.export:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-psd_export = ["*.pyx"]
+[tool.poetry.scripts]
+psd-export = "src.psd_export.export:main"
