@@ -16,11 +16,14 @@ For my art workflow, I typically make a bunch variation layers and also need to 
 - Run `psd-export --help` for more command line arguments.
 
 ---
-### Building from source
-- Install a C compiler (like MSVC, GCC, Clang)
-- Install extra dependencies: `pip install setuptools wheel cython numpy`
-- Install this repository locally: `pip install -e .`
-- If you modify a Cython file (.pyx), then rebuild it with: `python setup.py build_ext --inplace`
+### Building from source with Poetry
+- Install a C compiler (like MSVC, GCC, Clang) (needed to compile Cython files).
+- Install Poetry `pip install poetry`
+- Run Poetry commands to interact with the project `poetry run psd-export`, `poetry install`, etc.
+
+---
+### Building/installing with Nix
+- This project is a Nix flake, so you can run flake commands to interact with the package `nix run`, `nix build`, etc.
 
 ---
 ### Setting up the PSD
