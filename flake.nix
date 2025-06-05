@@ -28,14 +28,22 @@
           runHook postConfigure
         '';
       };
+      pythonldlibpath = pkgs.lib.makeLibraryPath (with pkgs; [
+        stdenv.cc.cc
+        libGL
+        glib
+      ]);
     in
     {
       packages.default = mkPoetryApplication config;
-      devShells.default = pkgs.mkShellNoCC {
+      devShells.default = pkgs.mkShell {
         packages = with pkgs; [
           poetry
-          (mkPoetryEnv config)
-        ];
+          (mkPoetryEnv { projectDir = self; preferWheels = true; })
+        ] ++ config.nativeBuildInputs;
+        shellHook = ''
+          export LD_LIBRARY_PATH=${pythonldlibpath}
+        '';
       };
     }
   );
