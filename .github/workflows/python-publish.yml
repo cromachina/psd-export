@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-13, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +53,6 @@ jobs:
           CIBW_BUILD_FRONTEND: "pip; args: --no-build-isolation"
           CIBW_BEFORE_BUILD: pip install poetry-core wheel numpy cython
           CIBW_ARCHS_LINUX: x86_64 i686 aarch64
-          CIBW_ARCHS_MACOS: x86_64 arm64
           CIBW_ARCHS_WINDOWS: x86_64 arm64
           CIBW_ALLOW_EMPTY: True
           CIBW_PROJECT_REQUIRES_PYTHON: ">=3.11"
