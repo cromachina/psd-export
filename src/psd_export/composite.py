@@ -14,7 +14,7 @@ from . import blendfuncs
 from . import util
 from .util import peval
 
-dtype = np.float64
+dtype = np.float32
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):
