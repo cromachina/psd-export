@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "psd-export"
-version = "1.0.33"
+version = "1.0.34"
 authors = ["cromachina"]
 license = "MIT"
 description = "Fast exporting of PSDs with [tagged] layers for variants."
