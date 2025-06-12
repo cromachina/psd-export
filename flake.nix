@@ -2,48 +2,54 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    poetry2nix.url = "github:nix-community/poetry2nix";
   };
   outputs = {
-    self,
     nixpkgs,
     flake-utils,
-    poetry2nix,
+    ...
   }:
-  flake-utils.lib.eachDefaultSystem (
-    system:
+  flake-utils.lib.eachDefaultSystem (system:
     let
       pkgs = nixpkgs.legacyPackages.${system};
-      inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication mkPoetryEnv;
-      config = {
-        projectDir = self;
-        preferWheels = true;
-        nativeBuildInputs = with pkgs; [
-          python312Packages.distutils
-          python312Packages.cython
+      pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
+      project = pyproject.project;
+      pyPkgs = pkgs.python312Packages;
+      package = pyPkgs.buildPythonPackage {
+        pname = project.name;
+        version = project.version;
+        format = "pyproject";
+        src = ./.;
+        build-system = with pyPkgs; [
+          setuptools
+          wheel
+          numpy
+          cython
         ];
-        configurePhase = ''
-          runHook preConfigure
-          C_INCLUDE_PATH=${pkgs.python312Packages.numpy.coreIncludeDir} cythonize -i '**/*.pyx'
-          runHook postConfigure
-        '';
+        dependencies = with pyPkgs; [
+          numpy
+          opencv-python
+          psd-tools
+          psutil
+          pyrsistent
+        ];
       };
-      pythonldlibpath = pkgs.lib.makeLibraryPath (with pkgs; [
-        stdenv.cc.cc
-        libGL
-        glib
-      ]);
+      editablePackage = pyPkgs.mkPythonEditablePackage {
+        pname = project.name;
+        version = project.version;
+        scripts = project.scripts;
+        root = "$PWD/src";
+      };
     in
     {
-      packages.default = mkPoetryApplication config;
+      packages.default = pyPkgs.toPythonApplication package;
       devShells.default = pkgs.mkShell {
-        packages = with pkgs; [
-          poetry
-          (mkPoetryEnv { projectDir = self; preferWheels = true; })
-        ] ++ config.nativeBuildInputs;
-        shellHook = ''
-          export LD_LIBRARY_PATH=${pythonldlibpath}
-        '';
+        inputsFrom = [
+          package
+        ];
+        buildInputs = [
+          editablePackage
+          pyPkgs.build
+        ];
       };
     }
   );
