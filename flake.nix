@@ -11,32 +11,23 @@
   flake-utils.lib.eachDefaultSystem (system:
     let
       pkgs = nixpkgs.legacyPackages.${system};
+      lib = pkgs.lib;
+      pyPkgs = pkgs.python313Packages;
       pyproject = builtins.fromTOML (builtins.readFile ./pyproject.toml);
       project = pyproject.project;
-      pyPkgs = pkgs.python312Packages;
+      fixString = x: lib.strings.toLower (builtins.replaceStrings ["_"] ["-"] x);
+      getPkgs = x: lib.attrsets.attrVals (builtins.map fixString x) pyPkgs;
       package = pyPkgs.buildPythonPackage {
         pname = project.name;
         version = project.version;
         format = "pyproject";
         src = ./.;
-        build-system = with pyPkgs; [
-          setuptools
-          wheel
-          numpy
-          cython
-        ];
-        dependencies = with pyPkgs; [
-          numpy
-          opencv-python
-          psd-tools
-          psutil
-          pyrsistent
-        ];
+        build-system = getPkgs pyproject.build-system.requires;
+        dependencies = getPkgs project.dependencies ++ [ pkgs.ffmpeg-full ];
       };
       editablePackage = pyPkgs.mkPythonEditablePackage {
         pname = project.name;
-        version = project.version;
-        scripts = project.scripts;
+        inherit (project) version scripts;
         root = "$PWD/src";
       };
     in
@@ -50,6 +41,9 @@
           editablePackage
           pyPkgs.build
         ];
+        shellHook = ''
+          build-cython() { python setup.py build_ext -j 4 --inplace; }
+        '';
       };
     }
   );
