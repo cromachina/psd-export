@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "psd-export"
-version = "1.0.34"
+version = "1.0.35"
 authors = [
     { name = "cromachina" }
 ]
-license = 'MIT'
+license = 'GPLv3'
 description = "Fast exporting of PSDs with [tagged] layers for variants."
 readme = "README.md"
 requires-python = ">=3.11.2"
