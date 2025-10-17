@@ -4,11 +4,17 @@ from Cython.Build import cythonize
 from setuptools import Extension, setup
 import numpy
 
+cflags = []
+if sys.platform == 'win32':
+    cflags.append('/d2FH4-')
+else:
+    cflags.extend(['-march=native'])
+
 extensions = [
     Extension(
-        "*",
-        ["**/*.pyx"],
-        extra_compile_args=["/d2FH4-"] if sys.platform == "win32" else [],
+        '*',
+        ['**/*.pyx'],
+        extra_compile_args=cflags,
         include_dirs=[numpy.get_include()],
     )
 ]

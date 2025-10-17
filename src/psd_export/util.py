@@ -9,7 +9,9 @@ import psd_tools.api.numpy_io as numpy_io
 import psd_tools.constants as ptc
 from psd_tools.api.layers import Layer
 
-from . import rle, blendfuncs
+from . import rle
+from . import blendfuncs_short as blendfuncs
+#from . import blendfuncs
 
 file_writer_futures = []
 
@@ -63,8 +65,6 @@ def is_grayscale(image):
 
 def save_worker(file_name, image, imwrite_args=[]):
     image = np.dstack(image)
-    image *= 255
-    image = image.astype(np.uint8)
     if (image[:,:,3] == 255).all():
         if is_grayscale(image):
             image = cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
@@ -121,7 +121,7 @@ async def layer_numpy(layer:Layer, channel=None):
 
     decoded = []
     for channel in channels:
-        decoded.append(peval(lambda channel=channel: numpy_io._parse_array(rle.decode_rle(channel.data, width, height, depth, version), depth)))
+        decoded.append(peval(lambda channel=channel: blendfuncs.parse_array(rle.decode_rle(channel.data, width, height, depth, version), depth)))
     decoded = await asyncio.gather(*decoded)
 
     return await peval(lambda: np.stack(decoded, axis=1).reshape((height, width, -1)))

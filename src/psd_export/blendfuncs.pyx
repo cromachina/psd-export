@@ -7,10 +7,37 @@ from psd_tools.constants import BlendMode
 # http://ssp.impulsetrain.com/porterduff.html
 # https://photoblogstop.com/photoshop/photoshop-blend-modes-explained
 
+dtype = np.float32
 ctypedef (float, float, float) Color
+DEF rangemax = 1.0
+tile_size = (256, 256)
+
+def get_max():
+    return rangemax
+
+def from_bytes(val):
+    return dtype(val) / 255.0
+
+def to_bytes(data):
+    return (data * 255.0).astype(np.uint8)
+
+def parse_array(data, depth, lut: np.ndarray | None = None):
+    if depth == 8:
+        parsed = np.frombuffer(data, ">u1")
+        if lut is not None:
+            parsed = lut[parsed]
+        return from_bytes(parsed)
+    elif depth == 16:
+        return np.frombuffer(data, ">u2").astype(dtype) / 0xffff
+    elif depth == 32:
+        return np.frombuffer(data, ">f4")
+    elif depth == 1:
+        return from_bytes(np.unpackbits(np.frombuffer(data, np.uint8)))
+    else:
+        raise ValueError("Unsupported depth: %g" % depth)
 
 cdef inline float _clip(float val) noexcept nogil:
-    return max(min(val, 1), 0)
+    return max(min(val, rangemax), 0)
 
 @cython.ufunc
 cdef float clip(float val) noexcept nogil:
@@ -20,7 +47,7 @@ cdef float eps = np.finfo(np.float64).eps
 
 cdef inline float _safe_divide(float a, float b) noexcept nogil:
     if b == 0:
-        return 1.0
+        return rangemax
     else:
         return a / b
 
@@ -44,7 +71,9 @@ def clip_divide(a, b, /, **kwargs):
         return clip_divide_ufunc(a, b, **kwargs)
 
 cdef inline float _comp(float C, float A) noexcept nogil:
-    return C * (1 - A)
+    return C * (rangemax - A)
+
+mul = np.multiply
 
 @cython.ufunc
 cdef float comp(float a, float b) noexcept nogil:

@@ -10,11 +10,10 @@ from psd_tools import PSDImage
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
 
-from . import blendfuncs
+from . import blendfuncs_short as blendfuncs
+#from . import blendfuncs
 from . import util
 from .util import peval
-
-dtype = np.float32
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):
@@ -159,10 +158,10 @@ def set_layer_extra_data(layer:WrappedLayer, tile_count, size):
             sublayer.custom_op_barrier = asyncio.Barrier(tile_count)
             sublayer.custom_op_condition = asyncio.Condition()
             sublayer.custom_op_finished = False
-            sublayer.custom_op_color_dst = np.zeros(size + (3,), dtype=dtype)
-            sublayer.custom_op_color_src = np.zeros(size + (3,), dtype=dtype)
-            sublayer.custom_op_alpha_dst = np.zeros(size + (1,), dtype=dtype)
-            sublayer.custom_op_alpha_src = np.zeros(size + (1,), dtype=dtype)
+            sublayer.custom_op_color_dst = np.zeros(size + (3,), dtype=blendfuncs.dtype)
+            sublayer.custom_op_color_src = np.zeros(size + (3,), dtype=blendfuncs.dtype)
+            sublayer.custom_op_alpha_dst = np.zeros(size + (1,), dtype=blendfuncs.dtype)
+            sublayer.custom_op_alpha_src = np.zeros(size + (1,), dtype=blendfuncs.dtype)
 
 def increment_get_counter(counter, key):
     counter[key] += 1
@@ -216,19 +215,17 @@ async def get_cached_layer_data(layer:WrappedLayer, channel):
     async with layer.data_cache_lock:
         if channel not in layer.data_cache:
             data = await util.layer_numpy(layer.layer, channel)
-            if data is not None:
-                data = data.astype(dtype, copy=False)
             layer.data_cache[channel] = data
             return data
         return layer.data_cache[channel]
 
-async def get_padded_data(layer:WrappedLayer, channel, size, offset, data_offset, fill=0.0):
+async def get_padded_data(layer:WrappedLayer, channel, size, offset, data_offset, fill=0):
     data = await get_cached_layer_data(layer, channel)
     if data is None:
         return None
     shape = size + data.shape[2:]
     def task():
-        pad = util.full(shape, fill, dtype=dtype)
+        pad = util.full(shape, fill, dtype=blendfuncs.dtype)
         blit(pad, data, np.array(util.swap(data_offset)) - np.array(offset))
         return pad
     return await peval(task)
@@ -264,14 +261,14 @@ async def get_pixel_layer_data(layer:WrappedLayer, size, offset):
         return None, None
     alpha_src = await get_padded_data(layer, 'shape', size, offset, layer.layer.offset)
     if alpha_src is None:
-        alpha_src = np.ones(size + (1,), dtype=dtype)
+        alpha_src = np.full(size + (1,), blendfuncs.get_max(), dtype=blendfuncs.dtype)
     color_src = await get_padded_data(layer, 'color', size, offset, layer.layer.offset)
     return color_src, alpha_src
 
 async def get_mask_data(layer:WrappedLayer, size, offset):
     mask = layer.layer.mask
     if mask and not mask.disabled:
-        return await get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), mask.background_color / 255.0)
+        return await get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), blendfuncs.from_bytes(mask.background_color))
     else:
         return None
 
@@ -308,15 +305,15 @@ def get_sai_special_mode_opacity(layer:Layer):
     tsly = blocks.get(Tag.TRANSPARENCY_SHAPES_LAYER, None)
     iOpa = blocks.get(Tag.BLEND_FILL_OPACITY, None)
     if tsly and iOpa and tsly.data == 0:
-        return dtype(iOpa.data) / 255.0, True
-    return dtype(layer.opacity) / 255.0, False
+        return blendfuncs.from_bytes(iOpa.data), True
+    return blendfuncs.from_bytes(layer.opacity), False
 
 async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
         color_dst, alpha_dst = backdrop
     else:
-        color_dst = dtype(0.0)
-        alpha_dst = dtype(0.0)
+        color_dst = blendfuncs.dtype(0)
+        alpha_dst = blendfuncs.dtype(0)
 
     sublayer:WrappedLayer
     for sublayer in layer:
@@ -348,7 +345,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
             if sublayer.custom_op is not None:
                 def ensure_array(src, shape):
                     if src is None or np.isscalar(src):
-                        return np.zeros(shape, dtype=dtype)
+                        return np.zeros(shape, dtype=blendfuncs.dtype)
                     else:
                         return src.copy()
                 def prepare_op():
@@ -409,8 +406,8 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 if mask_src is None:
                     mask_src = opacity
                 else:
-                    await peval(lambda: np.multiply(mask_src, opacity, out=mask_src))
-                if np.isscalar(mask_src) and mask_src == 1.0:
+                    await peval(lambda: blendfuncs.mul(mask_src, opacity, out=mask_src))
+                if np.isscalar(mask_src) and mask_src == blendfuncs.get_max():
                     color_dst = color_src
                     alpha_dst = alpha_src
                 else:
@@ -437,10 +434,10 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 def main_blend():
                     nonlocal color_src, color_dst, alpha_dst
                     # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
-                    np.multiply(alpha_src, opacity, out=alpha_src)
+                    blendfuncs.mul(alpha_src, opacity, out=alpha_src)
 
                     # Now we can 'premultiply' the color_src for the main blend operation.
-                    np.multiply(color_src, alpha_src, out=color_src)
+                    blendfuncs.mul(color_src, alpha_src, out=color_src)
 
                     # Run the blend operation.
                     blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
@@ -461,7 +458,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
 
                     # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
                     if mask_src is not None:
-                        np.multiply(alpha_src, mask_src, out=alpha_src)
+                        blendfuncs.mul(alpha_src, mask_src, out=alpha_src)
                     alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
                 await peval(main_blend)
 
@@ -479,12 +476,12 @@ debug_path = pathlib.Path('')
 debug_run = 0
 
 def debug_layer(name, offset, data):
-    data = (data * 255).astype(np.uint8)
+    data = blendfuncs.to_bytes(data)
     if data.shape[2] == 1:
         data = data.reshape(data.shape[:2])
     else:
         data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
-    path = debug_path /  f'{name}-{offset}-{debug_run}.png'
+    path = debug_path / f'{name}-{offset}-{debug_run}.png'
     cv2.imwrite(str(path), data)
 
 async def composite_tile(psd:WrappedLayer, size, offset, color, alpha):
@@ -538,7 +535,7 @@ async def count_tile(layer:WrappedLayer, size, offset):
         alpha_dst = alpha_src
     return alpha_dst
 
-async def composite(psd:WrappedLayer, tile_size=(256,256), count_mode=False):
+async def composite(psd:WrappedLayer, tile_size=blendfuncs.tile_size, count_mode=False):
     '''
     Composite the given PSD and return color (RGB) and alpha arrays.
     `tile_size` is arranged by (height, width)
@@ -548,8 +545,8 @@ async def composite(psd:WrappedLayer, tile_size=(256,256), count_mode=False):
         color = None
         alpha = None
     else:
-        color = np.zeros(size + (3,), dtype=dtype)
-        alpha = np.zeros(size + (1,), dtype=dtype)
+        color = np.zeros(size + (3,), dtype=blendfuncs.dtype)
+        alpha = np.zeros(size + (1,), dtype=blendfuncs.dtype)
 
     tiles = list(generate_tiles(size, tile_size))
     set_layer_extra_data(psd, len(tiles), size)
@@ -561,4 +558,7 @@ async def composite(psd:WrappedLayer, tile_size=(256,256), count_mode=False):
             else:
                 tg.create_task(composite_tile(psd, tile_size, tile_offset, color, alpha))
 
-    return color, alpha
+    if count_mode:
+        return None
+    else:
+        return blendfuncs.to_bytes(color), blendfuncs.to_bytes(alpha)

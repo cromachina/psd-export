@@ -1,17 +1,22 @@
 [build-system]
-requires = ["setuptools", "wheel", "cython", "numpy"]
-build-backend = "setuptools.build_meta"
+requires = [
+    'setuptools',
+    'wheel',
+    'cython',
+    'numpy',
+]
+build-backend = 'setuptools.build_meta'
 
 [project]
-name = "psd-export"
-version = "1.0.35"
+name = 'psd-export'
+version = '1.0.35'
 authors = [
-    { name = "cromachina" }
+    { name = 'cromachina' }
 ]
-license = { file = "LICENSE" }
-description = "Fast exporting of PSDs with [tagged] layers for variants."
-readme = "README.md"
-requires-python = ">=3.11.2"
+license = 'GPL-3.0-or-later'
+description = 'Fast exporting of PSDs with [tagged] layers for variants.'
+readme = 'README.md'
+requires-python = '>=3.11.2'
 dependencies = [
     'numpy',
     'opencv_python',
@@ -19,7 +24,7 @@ dependencies = [
     'psutil',
     'pyrsistent',
 ]
-keywords = ["exporter", "psd", "art"]
+keywords = ['exporter', 'psd', 'art']
 classifiers = [
     'Intended Audience :: End Users/Desktop',
     'Programming Language :: Python',
@@ -30,13 +35,13 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/cromachina/psd-export"
+'Homepage' = 'https://github.com/cromachina/psd-export'
 
 [project.scripts]
-psd-export = "psd_export.export:main"
+psd-export = 'psd_export.export:main'
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ['src']
 
 [tool.setuptools.package-data]
-psd_export = ["*.pyx"]
+psd_export = ['*.pyx']
