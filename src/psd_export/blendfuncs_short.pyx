@@ -53,23 +53,26 @@ def parse_array(data, depth, lut: np.ndarray | None = None):
         raise ValueError("Unsupported depth: %g" % depth)
 
 @cython.ufunc
-cdef threshold(short val):
+cdef short threshold(short val) noexcept nogil:
     return 0 if val == 0 else rangemax
 
-cdef inline short _clip(short val) noexcept nogil:
+cdef inline short _clip(int val) noexcept nogil:
     return max(min(val, rangemax), 0)
 
 @cython.ufunc
 cdef short clip(short val) noexcept nogil:
     return _clip(val)
 
-cdef inline short _safe_divide(short a, short b) noexcept nogil:
+cdef inline int _safe_divide(int a, int b) noexcept nogil:
     if b == 0:
         return rangemax
     else:
-        return <short> (rangemax * (<float> a / rangemax) / (<float> b / rangemax))
+        return <int> (rangemax * (<float> a / rangemax) / (<float> b / rangemax))
 
-cdef inline short _clip_divide(short a, short b) noexcept nogil:
+cdef inline short _clip_divide(int a, int b) noexcept nogil:
+    return _clip(_safe_divide(a, b))
+
+cdef inline short _clip_divide_short(short a, short b) noexcept nogil:
     return _clip(_safe_divide(a, b))
 
 @cython.ufunc
@@ -352,7 +355,7 @@ cdef short subtract(short Cd, short Cs, short Ad, short As) noexcept nogil:
 
 @cython.ufunc
 cdef short divide(short Cd, short Cs, short Ad, short As) noexcept nogil:
-    return _premul(Cd, Cs, Ad, As, _clip_divide)
+    return _premul(Cd, Cs, Ad, As, _clip_divide_short)
 
 cdef short gamma_r = 0x1332 # 0.30
 cdef short gamma_g = 0x25c1 # 0.59
