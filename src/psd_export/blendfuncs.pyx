@@ -8,21 +8,20 @@ from psd_tools.constants import BlendMode
 # https://photoblogstop.com/photoshop/photoshop-blend-modes-explained
 
 dtype = np.float32
-ctypedef (float, float, float) Color
-DEF rangemax = 1.0
 tile_size = (256, 256)
 
+ctypedef (float, float, float) Color
+cdef extern from "math.h":
+    float sqrt(float x) noexcept nogil
+
 def get_max():
-    return rangemax
+    return 1
 
 def from_bytes(val):
     return dtype(val) / 255.0
 
 def to_bytes(data):
     return (data * 255.0).astype(np.uint8)
-
-def from_floats(val):
-    return val
 
 def parse_array(data, depth, lut: np.ndarray | None = None):
     if depth == 8:
@@ -40,11 +39,11 @@ def parse_array(data, depth, lut: np.ndarray | None = None):
         raise ValueError("Unsupported depth: %g" % depth)
 
 @cython.ufunc
-cdef threshold(float val):
+cdef float threshold(float val) noexcept nogil:
     return val ** 0.0001
 
 cdef inline float _clip(float val) noexcept nogil:
-    return max(min(val, rangemax), 0)
+    return max(min(val, 1), 0)
 
 @cython.ufunc
 cdef float clip(float val) noexcept nogil:
@@ -54,7 +53,7 @@ cdef float eps = np.finfo(np.float64).eps
 
 cdef inline float _safe_divide(float a, float b) noexcept nogil:
     if b == 0:
-        return rangemax
+        return 1
     else:
         return a / b
 
@@ -70,7 +69,7 @@ def clip_divide(a, b, /, **kwargs):
         return clip_divide_ufunc(a, b, **kwargs)
 
 cdef inline float _comp(float C, float A) noexcept nogil:
-    return C * (rangemax - A)
+    return C * (1 - A)
 
 mul = np.multiply
 
@@ -104,25 +103,26 @@ cdef inline float _blend(float Csp, float Cdp, float Asrc, float Adst, float Abo
     return Csp * Asrc + Cdp * Adst + Aboth * B
 
 cdef inline float _premul(float Cd, float Cs, float Ad, float As, float(*straight_func)(float, float) noexcept nogil) noexcept nogil:
-    Cdp = _clip_divide(Cd, Ad)
-    Csp = _clip_divide(Cs, As)
-    B = straight_func(Cdp, Csp)
-    Asrc = _comp(As, Ad)
-    Adst = _comp(Ad, As)
-    Aboth = As * Ad
+    cdef float Cdp = _clip_divide(Cd, Ad)
+    cdef float Csp = _clip_divide(Cs, As)
+    cdef float B = straight_func(Cdp, Csp)
+    cdef float Asrc = _comp(As, Ad)
+    cdef float Adst = _comp(Ad, As)
+    cdef float Aboth = As * Ad
     return _blend(Csp, Cdp, Asrc, Adst, Aboth, B)
 
 cdef inline Color _premul_nonseperable(Color Cd, Color Cs, float Ad, float As, (Color)(*straight_func)(Color, Color) noexcept nogil) noexcept nogil:
-    Cdp_r = _clip_divide(Cd[0], Ad)
-    Cdp_g = _clip_divide(Cd[1], Ad)
-    Cdp_b = _clip_divide(Cd[2], Ad)
-    Csp_r = _clip_divide(Cs[0], As)
-    Csp_g = _clip_divide(Cs[1], As)
-    Csp_b = _clip_divide(Cs[2], As)
+    cdef float Cdp_r = _clip_divide(Cd[0], Ad)
+    cdef float Cdp_g = _clip_divide(Cd[1], Ad)
+    cdef float Cdp_b = _clip_divide(Cd[2], Ad)
+    cdef float Csp_r = _clip_divide(Cs[0], As)
+    cdef float Csp_g = _clip_divide(Cs[1], As)
+    cdef float Csp_b = _clip_divide(Cs[2], As)
+    cdef float B_r, B_g, B_b
     B_r, B_g, B_b = straight_func((Cdp_r, Cdp_g, Cdp_b), (Csp_r, Csp_g, Csp_b))
-    Asrc = _comp(As, Ad)
-    Adst = _comp(Ad, As)
-    Aboth = As * Ad
+    cdef float Asrc = _comp(As, Ad)
+    cdef float Adst = _comp(Ad, As)
+    cdef float Aboth = As * Ad
     B_r = _blend(Csp_r, Cdp_r, Asrc, Adst, Aboth, B_r)
     B_g = _blend(Csp_g, Cdp_g, Asrc, Adst, Aboth, B_g)
     B_b = _blend(Csp_b, Cdp_b, Asrc, Adst, Aboth, B_b)
@@ -155,8 +155,8 @@ def overlay(Cd, Cs, Ad, As):
 
 @cython.ufunc
 cdef float sai_linear_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    H = Cdd + Cs - As
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float H = Cdd + Cs - As
     H = _clip(H)
     return _lerp(Cs, H, Ad)
 
@@ -169,8 +169,8 @@ cdef float ts_linear_burn(float Cd, float Cs, float Ad, float As) noexcept nogil
 
 @cython.ufunc
 cdef float sai_linear_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    H = Cdd + Cs
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float H = Cdd + Cs
     H = _clip(H)
     return _lerp(Cs, H, Ad)
 
@@ -183,14 +183,14 @@ cdef float ts_linear_dodge(float Cd, float Cs, float Ad, float As) noexcept nogi
 
 @cython.ufunc
 cdef float sai_linear_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    Cs2 = Cs * 2
-    LB = Cdd + Cs2 - As
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float Cs2 = Cs * 2
+    cdef float LB = Cdd + Cs2 - As
     LB = _clip(LB)
     return _lerp(Cs, LB, Ad)
 
 cdef inline float ts_linear_light_straight(float Cd, float Cs) noexcept nogil:
-    Cs2 = Cs * 2
+    cdef float Cs2 = Cs * 2
     if Cs > 0.5:
         return ts_linear_dodge_straight(Cd, Cs2 - 1)
     else:
@@ -209,8 +209,8 @@ cdef float ts_color_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
 
 @cython.ufunc
 cdef float sai_color_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    B = 1 - _clip_divide(1 - Cdd, 1 - As + Cs)
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float B = 1 - _clip_divide(1 - Cdd, 1 - As + Cs)
     return _lerp(Cs, B, Ad)
 
 cdef inline float ts_color_dodge_straight(float Cd, float Cs) noexcept nogil:
@@ -222,12 +222,12 @@ cdef float ts_color_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil
 
 @cython.ufunc
 cdef float sai_color_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    H = _clip_divide(Cdd, 1 - Cs)
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float H = _clip_divide(Cdd, 1 - Cs)
     return _lerp(Cs, H, Ad)
 
 cdef inline float ts_vivid_light_straight(float Cd, float Cs) noexcept nogil:
-    Cs2 = Cs * 2
+    cdef float Cs2 = Cs * 2
     if Cs > 0.5:
         return ts_color_dodge_straight(Cd, Cs2 - 1)
     else:
@@ -239,19 +239,16 @@ cdef float ts_vivid_light(float Cd, float Cs, float Ad, float As) noexcept nogil
 
 @cython.ufunc
 cdef float sai_vivid_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    Csd = _clip_divide(Cs, As)
-    Cs2 = As - Cs * 2
-    CB = 1 - _clip_divide(1 - Cdd, 1 - Cs2)
-    CD = _clip_divide(Cdd, 1 + Cs2)
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float Csd = _clip_divide(Cs, As)
+    cdef float Cs2 = As - Cs * 2
+    cdef float CB = 1 - _clip_divide(1 - Cdd, 1 - Cs2)
+    cdef float CD = _clip_divide(Cdd, 1 + Cs2)
     if Csd > 0.5:
         CB = CD
     if Cs == 1:
         CB = 1
     return _lerp(Cs, CB, Ad)
-
-cdef extern from "math.h":
-    float sqrt(float x) noexcept nogil
 
 cdef inline float soft_light_straight(float Cd, float Cs) noexcept nogil:
     cdef float D, B
@@ -270,7 +267,7 @@ cdef float soft_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, soft_light_straight)
 
 cdef inline float hard_light_straight(float Cd, float Cs) noexcept nogil:
-    Cs2 = Cs * 2
+    cdef float Cs2 = Cs * 2
     if Cs > 0.5:
         return screen_straight(Cd, Cs2 - 1)
     else:
@@ -281,7 +278,7 @@ cdef float hard_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, hard_light_straight)
 
 cdef inline float pin_light_straight(float Cd, float Cs) noexcept nogil:
-    Cs2 = Cs * 2
+    cdef float Cs2 = Cs * 2
     if Cs > 0.5:
         return max(Cs2 - 1, Cd)
     else:
@@ -293,9 +290,9 @@ cdef float pin_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
 
 @cython.ufunc
 cdef float sai_hard_mix(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    Csd = _clip_divide(Cs, As)
-    H = _clip_divide(Cdd - As + As * Csd, 1 - As)
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float Csd = _clip_divide(Cs, As)
+    cdef float H = _clip_divide(Cdd - As + As * Csd, 1 - As)
     return _lerp(Cs, H, Ad)
 
 cdef inline float ts_hard_mix_straight(float Cd, float Cs) noexcept nogil:
@@ -322,8 +319,8 @@ cdef float ts_difference(float Cd, float Cs, float Ad, float As) noexcept nogil:
 
 @cython.ufunc
 cdef float sai_difference(float Cd, float Cs, float Ad, float As) noexcept nogil:
-    Cdd = _clip_divide(Cd, Ad)
-    D = abs(Cdd - Cs)
+    cdef float Cdd = _clip_divide(Cd, Ad)
+    cdef float D = abs(Cdd - Cs)
     return _lerp(Cs, D, Ad)
 
 @cython.ufunc
@@ -348,6 +345,7 @@ cdef inline Color _clip_color(Color C) noexcept nogil:
     cdef float C_rL = C[0] - L
     cdef float C_gL = C[1] - L
     cdef float C_bL = C[2] - L
+    cdef float Ln, L1, xL
     if n < 0.0:
         Ln = L - n
         C[0] = L + _safe_divide(C_rL * L, Ln)
@@ -362,7 +360,7 @@ cdef inline Color _clip_color(Color C) noexcept nogil:
     return C
 
 cdef inline Color _set_lum(Color C, float L) noexcept nogil:
-    d = L - _lum(C)
+    cdef float d = L - _lum(C)
     C[0] = C[0] + d
     C[1] = C[1] + d
     C[2] = C[2] + d

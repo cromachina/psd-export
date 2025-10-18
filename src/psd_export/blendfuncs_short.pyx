@@ -10,6 +10,8 @@ from cpython cimport array
 # https://photoblogstop.com/photoshop/photoshop-blend-modes-explained
 
 dtype = np.int16
+tile_size = (512, 512)
+
 ctypedef (short, short, short) Color
 cdef short rangemax = 0x3fff
 cdef short rangehalf = (rangemax // 2)
@@ -18,7 +20,10 @@ cdef short range2 = (rangemax * 2)
 cdef short range4 = (rangemax * 4)
 cdef short range12 = (rangemax * 12)
 cdef short range16 = (rangemax * 16)
-tile_size = (512, 512)
+cdef short gamma_r = 0x1332 # 0.30
+cdef short gamma_g = 0x25c1 # 0.59
+cdef short gamma_b = 0x070a # 0.11
+cdef short[::1] sqrt_lut = (np.sqrt(np.arange(0, rangemax + 1, dtype=np.float32) / rangemax) * rangemax).astype(np.int16)
 
 def get_max():
     return rangemax
@@ -28,14 +33,10 @@ cdef inline short _from_bytes(short val):
     return (val << 6) | (val >> 2)
 
 def from_bytes(val):
-    val = dtype(val)
-    return _from_bytes(val)
+    return _from_bytes(dtype(val))
 
 def to_bytes(data):
     return (data >> 6).astype(np.uint8)
-
-def from_floats(val):
-    return dtype(val * rangemax)
 
 def parse_array(data, depth, lut: np.ndarray | None = None):
     if depth == 8:
@@ -270,8 +271,6 @@ cdef short sai_vivid_light(short Cd, short Cs, short Ad, short As) noexcept nogi
         CB = rangemax
     return _lerp(Cs, CB, Ad)
 
-cdef short[::1] sqrt_lut = (np.sqrt(np.arange(0, rangemax + 1, dtype=np.float32) / rangemax) * rangemax).astype(np.int16)
-
 cdef inline short soft_light_straight(short Cd, short Cs) noexcept nogil:
     cdef short D, B
     if Cs <= rangequarter:
@@ -356,10 +355,6 @@ cdef short subtract(short Cd, short Cs, short Ad, short As) noexcept nogil:
 @cython.ufunc
 cdef short divide(short Cd, short Cs, short Ad, short As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, _clip_divide_short)
-
-cdef short gamma_r = 0x1332 # 0.30
-cdef short gamma_g = 0x25c1 # 0.59
-cdef short gamma_b = 0x070a # 0.11
 
 cdef inline short _lum(Color C) noexcept nogil:
     return _mul(gamma_r, C[0]) + _mul(gamma_g, C[1]) + _mul(gamma_b, C[2])
