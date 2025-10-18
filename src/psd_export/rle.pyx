@@ -5,13 +5,13 @@ from libc.stdint cimport *
 import numpy as np
 
 # A more speed optimized RLE decode based on https://github.com/psd-tools/psd-tools/blob/main/src/psd_tools/compression/
-cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result):
+cdef decode_rle(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result):
     cdef uint32_t row_offset = 0, count
-    cdef int src, dst, length, header, i, src_next, dst_next
+    cdef size_t src, dst, length, src_next, dst_next, header, data_size
     cdef const uint8_t[:] row_view
     cdef uint8_t[:] result_row
     cdef size_t width = result.shape[1]
-    cdef size_t data_size
+    cdef int i
 
     with nogil:
         for i in range(counts.shape[0]):
@@ -22,9 +22,9 @@ cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result
             dst = 0
             data_size = row_view.shape[0]
             while src < data_size:
-                header = <int> (<int8_t> (<void*> row_view[src]))
+                header = row_view[src]
                 src = src + 1
-                if 0 <= header <= 127:
+                if header <= 127:
                     length = header + 1
                     src_next = src + length
                     dst_next = dst + length
@@ -34,10 +34,8 @@ cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result
                         dst = dst_next
                     else:
                         raise ValueError('Invalid RLE compression')
-                elif header == -128:
-                    pass
-                else:
-                    length = 1 - header
+                elif header > 128:
+                    length = (header ^ 0xff) + 2
                     src_next = src + 1
                     dst_next = dst + length
                     if src_next <= data_size and dst_next <= width:
@@ -51,7 +49,7 @@ cdef decode(const uint32_t[:] counts, const uint8_t[:] rows, uint8_t[:,:] result
             row_offset += count
     return result
 
-def decode_rle(data, width, height, depth, version):
+def decode(data, width, height, depth, version):
     row_size = max(width * depth // 8, 1)
     dtype = (np.uint16, np.uint32)[version - 1]
     counts = np.frombuffer(data, dtype=dtype, count=height).copy()
@@ -59,5 +57,5 @@ def decode_rle(data, width, height, depth, version):
         counts.byteswap(inplace=True)
     rows = np.frombuffer(data, dtype=np.ubyte, offset=counts.nbytes)
     result = np.empty((height, row_size), dtype=np.ubyte)
-    decode(counts.astype(np.uint32), rows, result)
+    decode_rle(counts.astype(np.uint32), rows, result)
     return result

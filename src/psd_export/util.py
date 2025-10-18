@@ -121,7 +121,7 @@ async def layer_numpy(layer:Layer, channel=None):
 
     decoded = []
     for channel in channels:
-        decoded.append(peval(lambda channel=channel: blendfuncs.parse_array(rle.decode_rle(channel.data, width, height, depth, version), depth)))
+        decoded.append(peval(lambda channel=channel: blendfuncs.parse_array(rle.decode(channel.data, width, height, depth, version), depth)))
     decoded = await asyncio.gather(*decoded)
 
     return await peval(lambda: np.stack(decoded, axis=1).reshape((height, width, -1)))
