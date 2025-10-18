@@ -69,14 +69,6 @@ cdef inline short _safe_divide(short a, short b) noexcept nogil:
     else:
         return <short> (rangemax * (<float> a / rangemax) / (<float> b / rangemax))
 
-@cython.ufunc
-cdef short safe_divide_ufunc(short a, short b) noexcept nogil:
-        return _safe_divide(a, b)
-
-def safe_divide(a, b, /, **kwargs):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return safe_divide_ufunc(a, b, **kwargs)
-
 cdef inline short _clip_divide(short a, short b) noexcept nogil:
     return _clip(_safe_divide(a, b))
 

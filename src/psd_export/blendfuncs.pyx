@@ -58,14 +58,6 @@ cdef inline float _safe_divide(float a, float b) noexcept nogil:
     else:
         return a / b
 
-@cython.ufunc
-cdef float safe_divide_ufunc(float a, float b) noexcept nogil:
-        return _safe_divide(a, b)
-
-def safe_divide(a, b, /, **kwargs):
-    with np.errstate(divide='ignore', invalid='ignore'):
-        return safe_divide_ufunc(a, b, **kwargs)
-
 cdef inline float _clip_divide(float a, float b) noexcept nogil:
     return _clip(_safe_divide(a, b))
 
