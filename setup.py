@@ -7,8 +7,6 @@ import numpy
 cflags = []
 if sys.platform == 'win32':
     cflags.append('/d2FH4-')
-else:
-    cflags.extend(['-march=native'])
 
 extensions = [
     Extension(

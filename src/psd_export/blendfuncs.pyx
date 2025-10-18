@@ -21,6 +21,9 @@ def from_bytes(val):
 def to_bytes(data):
     return (data * 255.0).astype(np.uint8)
 
+def from_floats(val):
+    return val
+
 def parse_array(data, depth, lut: np.ndarray | None = None):
     if depth == 8:
         parsed = np.frombuffer(data, ">u1")
@@ -35,6 +38,10 @@ def parse_array(data, depth, lut: np.ndarray | None = None):
         return from_bytes(np.unpackbits(np.frombuffer(data, np.uint8)))
     else:
         raise ValueError("Unsupported depth: %g" % depth)
+
+@cython.ufunc
+cdef threshold(float val):
+    return val ** 0.0001
 
 cdef inline float _clip(float val) noexcept nogil:
     return max(min(val, rangemax), 0)
