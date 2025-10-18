@@ -222,7 +222,10 @@ arg_parser.add_argument('--use-floats', action='store_true', default=False,
     help='Use float computation instead of integers. Slower and uses more memory; Used for testing and verification.')
 
 async def async_main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        format='[%(asctime)s][%(levelname)s] %(message)s',
+        level=logging.INFO
+    )
     args = arg_parser.parse_args()
     if args.use_floats:
         util.load_blendfuncs(False)
@@ -230,6 +233,9 @@ async def async_main():
     filters.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     files = list(glob.iglob(args.file_name))
+    if not files:
+        logging.info('No PSD files found.')
+        return
     files.sort()
     for file_name in files:
         await export_all_variants(file_name, args)
