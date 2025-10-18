@@ -424,7 +424,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 if sublayer.clip_layers:
                     # Composite the clip layers now. This basically overwrites just the color by blending onto it without
                     # alpha blending it first.
-                    corrected_alpha = await peval(lambda: alpha_src ** 0.0001)
+                    corrected_alpha = await peval(lambda: blendfuncs.threshold(alpha_src))
                     clip_src, _ = await composite_group_layer(sublayer.clip_layers, size, offset, (color_src, corrected_alpha))
                     if clip_src is not None:
                         color_src = clip_src
