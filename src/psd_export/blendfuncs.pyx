@@ -101,11 +101,11 @@ cdef float lerp(float a, float b, float t) noexcept nogil:
     return _lerp(a, b, t)
 
 @cython.ufunc
-cdef float normal(float Cd, float Cs, float Ad, float As) nogil:
+cdef float normal(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return Cs + _comp(Cd, As)
 
 @cython.ufunc
-cdef float normal_alpha(float Ad, float As) nogil:
+cdef float normal_alpha(float Ad, float As) noexcept nogil:
     return Ad + As - Ad * As
 
 cdef inline float _blend(float Csp, float Cdp, float Asrc, float Adst, float Aboth, float B) noexcept nogil:
@@ -140,6 +140,7 @@ def ensure_array(D, S):
     return np.full_like(S, D) if np.isscalar(D) else D
 
 def nonseperable(func):
+    @cython.wraparound(True)
     def wrap(Cd, Cs, Ad, As):
         Cd = ensure_array(Cd, Cs)
         Ad = ensure_array(Ad, As)
@@ -147,21 +148,21 @@ def nonseperable(func):
     return wrap
 
 @cython.ufunc
-cdef float multiply(float Cd, float Cs, float Ad, float As) nogil:
+cdef float multiply(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return Cs * Cd + _comp2(Cd, Cs, Ad, As)
 
 cdef inline float screen_straight(float Cd, float Cs) noexcept nogil:
     return Cs + Cd - Cs * Cd
 
 @cython.ufunc
-cdef float screen(float Cd, float Cs, float Ad, float As) nogil:
+cdef float screen(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return screen_straight(Cd, Cs)
 
 def overlay(Cd, Cs, Ad, As):
     return hard_light(Cs, Cd, As, Ad)
 
 @cython.ufunc
-cdef float sai_linear_burn(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_linear_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     H = Cdd + Cs - As
     H = _clip(H)
@@ -171,11 +172,11 @@ cdef inline float ts_linear_burn_straight(float Cd, float Cs) noexcept nogil:
     return _clip(Cd + Cs - 1)
 
 @cython.ufunc
-cdef float ts_linear_burn(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_linear_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_linear_burn_straight)
 
 @cython.ufunc
-cdef float sai_linear_dodge(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_linear_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     H = Cdd + Cs
     H = _clip(H)
@@ -185,11 +186,11 @@ cdef inline float ts_linear_dodge_straight(float Cd, float Cs) noexcept nogil:
     return _clip(Cd + Cs)
 
 @cython.ufunc
-cdef float ts_linear_dodge(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_linear_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_linear_dodge_straight)
 
 @cython.ufunc
-cdef float sai_linear_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_linear_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     Cs2 = Cs * 2
     LB = Cdd + Cs2 - As
@@ -204,18 +205,18 @@ cdef inline float ts_linear_light_straight(float Cd, float Cs) noexcept nogil:
         return ts_linear_burn_straight(Cd, Cs2)
 
 @cython.ufunc
-cdef float ts_linear_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_linear_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_linear_light_straight)
 
 cdef inline float ts_color_burn_straight(float Cd, float Cs) noexcept nogil:
     return 1 - _clip_divide(1 - Cd, Cs)
 
 @cython.ufunc
-cdef float ts_color_burn(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_color_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_color_burn_straight)
 
 @cython.ufunc
-cdef float sai_color_burn(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_color_burn(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     B = 1 - _clip_divide(1 - Cdd, 1 - As + Cs)
     return _lerp(Cs, B, Ad)
@@ -224,11 +225,11 @@ cdef inline float ts_color_dodge_straight(float Cd, float Cs) noexcept nogil:
     return _clip_divide(Cd, 1 - Cs)
 
 @cython.ufunc
-cdef float ts_color_dodge(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_color_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_color_dodge_straight)
 
 @cython.ufunc
-cdef float sai_color_dodge(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_color_dodge(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     H = _clip_divide(Cdd, 1 - Cs)
     return _lerp(Cs, H, Ad)
@@ -241,11 +242,11 @@ cdef inline float ts_vivid_light_straight(float Cd, float Cs) noexcept nogil:
         return ts_color_burn_straight(Cd, Cs2)
 
 @cython.ufunc
-cdef float ts_vivid_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_vivid_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_vivid_light_straight)
 
 @cython.ufunc
-cdef float sai_vivid_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_vivid_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     Csd = _clip_divide(Cs, As)
     Cs2 = As - Cs * 2
@@ -273,7 +274,7 @@ cdef inline float soft_light_straight(float Cd, float Cs) noexcept nogil:
     return B
 
 @cython.ufunc
-cdef float soft_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float soft_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, soft_light_straight)
 
 cdef inline float hard_light_straight(float Cd, float Cs) noexcept nogil:
@@ -284,7 +285,7 @@ cdef inline float hard_light_straight(float Cd, float Cs) noexcept nogil:
         return Cd * Cs2
 
 @cython.ufunc
-cdef float hard_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float hard_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, hard_light_straight)
 
 cdef inline float pin_light_straight(float Cd, float Cs) noexcept nogil:
@@ -295,11 +296,11 @@ cdef inline float pin_light_straight(float Cd, float Cs) noexcept nogil:
         return min(Cs2, Cd)
 
 @cython.ufunc
-cdef float pin_light(float Cd, float Cs, float Ad, float As) nogil:
+cdef float pin_light(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, pin_light_straight)
 
 @cython.ufunc
-cdef float sai_hard_mix(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_hard_mix(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     Csd = _clip_divide(Cs, As)
     H = _clip_divide(Cdd - As + As * Csd, 1 - As)
@@ -312,37 +313,37 @@ cdef inline float ts_hard_mix_straight(float Cd, float Cs) noexcept nogil:
         return 0
 
 @cython.ufunc
-cdef float ts_hard_mix(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_hard_mix(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, ts_hard_mix_straight)
 
 @cython.ufunc
-cdef float darken(float Cd, float Cs, float Ad, float As) nogil:
+cdef float darken(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return min(Cs * Ad, Cd * As) + _comp2(Cd, Cs, Ad, As)
 
 @cython.ufunc
-cdef float lighten(float Cd, float Cs, float Ad, float As) nogil:
+cdef float lighten(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return max(Cs * Ad, Cd * As) + _comp2(Cd, Cs, Ad, As)
 
 @cython.ufunc
-cdef float ts_difference(float Cd, float Cs, float Ad, float As) nogil:
+cdef float ts_difference(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return Cs + Cd - 2 * min(Cd * As, Cs * Ad)
 
 @cython.ufunc
-cdef float sai_difference(float Cd, float Cs, float Ad, float As) nogil:
+cdef float sai_difference(float Cd, float Cs, float Ad, float As) noexcept nogil:
     Cdd = _clip_divide(Cd, Ad)
     D = abs(Cdd - Cs)
     return _lerp(Cs, D, Ad)
 
 @cython.ufunc
-cdef float exclusion(float Cd, float Cs, float Ad, float As) nogil:
+cdef float exclusion(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return (Cs * Ad + Cd * As - 2 * Cs * Cd) + _comp2(Cd, Cs, Ad, As)
 
 @cython.ufunc
-cdef float subtract(float Cd, float Cs, float Ad, float As) nogil:
+cdef float subtract(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return max(0, Cd * As - Cs * Ad) + _comp2(Cd, Cs, Ad, As)
 
 @cython.ufunc
-cdef float divide(float Cd, float Cs, float Ad, float As) nogil:
+cdef float divide(float Cd, float Cs, float Ad, float As) noexcept nogil:
     return _premul(Cd, Cs, Ad, As, _clip_divide)
 
 cdef inline float _lum(Color C) noexcept nogil:
@@ -425,7 +426,7 @@ cdef inline Color hue_straight(Color Cd, Color Cs) noexcept nogil:
     return _set_lum(_set_sat(Cs, _sat(Cd)), _lum(Cd))
 
 @cython.ufunc
-cdef Color hue_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color hue_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, hue_straight)
 
 hue = nonseperable(hue_nonseperable)
@@ -434,7 +435,7 @@ cdef inline Color saturation_straight(Color Cd, Color Cs) noexcept nogil:
     return _set_lum(_set_sat(Cd, _sat(Cs)), _lum(Cd))
 
 @cython.ufunc
-cdef Color saturation_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color saturation_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, saturation_straight)
 
 saturation = nonseperable(saturation_nonseperable)
@@ -443,7 +444,7 @@ cdef inline Color color_straight(Color Cd, Color Cs) noexcept nogil:
     return _set_lum(Cs, _lum(Cd))
 
 @cython.ufunc
-cdef Color color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, color_straight)
 
 color = nonseperable(color_nonseperable)
@@ -452,7 +453,7 @@ cdef inline Color luminosity_straight(Color Cd, Color Cs) noexcept nogil:
     return _set_lum(Cd, _lum(Cs))
 
 @cython.ufunc
-cdef Color luminosity_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color luminosity_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, luminosity_straight)
 
 luminosity = nonseperable(luminosity_nonseperable)
@@ -464,7 +465,7 @@ cdef inline Color darker_color_straight(Color Cd, Color Cs) noexcept nogil:
         return Cd
 
 @cython.ufunc
-cdef Color darker_color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color darker_color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, darker_color_straight)
 
 darker_color = nonseperable(darker_color_nonseperable)
@@ -476,7 +477,7 @@ cdef inline Color lighter_color_straight(Color Cd, Color Cs) noexcept nogil:
         return Cd
 
 @cython.ufunc
-cdef Color lighter_color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) nogil:
+cdef Color lighter_color_nonseperable(float Cd_r, float Cd_g, float Cd_b, float Cs_r, float Cs_g, float Cs_b, float Ad, float As) noexcept nogil:
     return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, lighter_color_straight)
 
 lighter_color = nonseperable(lighter_color_nonseperable)
