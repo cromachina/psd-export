@@ -10,10 +10,14 @@ from psd_tools import PSDImage
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
 
-from . import blendfuncs_short as blendfuncs
-#from . import blendfuncs
-from . import util
+from . import util, blendfuncs_short, blendfuncs_float
 from .util import peval
+
+blendfuncs = blendfuncs_short
+
+def load_blendfuncs(short_mode):
+    global blendfuncs
+    blendfuncs = blendfuncs_short if short_mode else blendfuncs_float
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):

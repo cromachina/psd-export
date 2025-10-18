@@ -9,9 +9,13 @@ import psd_tools.api.numpy_io as numpy_io
 import psd_tools.constants as ptc
 from psd_tools.api.layers import Layer
 
-from . import rle
-from . import blendfuncs_short as blendfuncs
-#from . import blendfuncs
+from . import rle, blendfuncs_short, blendfuncs_float
+
+blendfuncs = blendfuncs_short
+
+def load_blendfuncs(short_mode):
+    global blendfuncs
+    blendfuncs = blendfuncs_short if short_mode else blendfuncs_float
 
 file_writer_futures = []
 

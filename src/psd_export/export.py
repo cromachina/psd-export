@@ -196,11 +196,11 @@ async def export_all_variants(file_name, config):
         composite.clear_count_mode(psd)
 
 arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument('--subfolders', action=argparse.BooleanOptionalAction, default=True,
+arg_parser.add_argument('--subfolders', action='store_true', default=True,
     help='Export secondary tags to subfolders.')
-arg_parser.add_argument('--primary-sub', action=argparse.BooleanOptionalAction, default=False,
+arg_parser.add_argument('--primary-sub', action='store_true', default=False,
     help='Make primary tags into subfolders.')
-arg_parser.add_argument('--dryrun', action=argparse.BooleanOptionalAction, default=False,
+arg_parser.add_argument('--dryrun', action='store_true', default=False,
     help='Show what files would have been exported, but do not actually export anything.')
 arg_parser.add_argument('--only-secondary-tags', action=argparse.BooleanOptionalAction, default=False,
     help='Only export secondary tags. This is useful for when exporting a primary tag by itself does not produce a meaningful picture.')
@@ -216,12 +216,17 @@ arg_parser.add_argument('--jpg-quality', default=95, type=int,
     help='Set the quality level for JPG output (0 to 100).')
 arg_parser.add_argument('--output-type', default='png', type=str,
     help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
-arg_parser.add_argument('--file-name',  default='*.psd', type=str,
+arg_parser.add_argument('--file-name', default='*.psd', type=str,
     help='PSD files to process; can use a glob pattern.')
+arg_parser.add_argument('--use-floats', action='store_true', default=False,
+    help='Use float computation instead of integers. Slower and uses more memory; Used for testing and verification.')
 
 async def async_main():
     logging.basicConfig(level=logging.INFO)
     args = arg_parser.parse_args()
+    if args.use_floats:
+        util.load_blendfuncs(False)
+        composite.load_blendfuncs(False)
     filters.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     files = list(glob.iglob(args.file_name))
