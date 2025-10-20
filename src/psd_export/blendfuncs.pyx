@@ -344,7 +344,7 @@ cdef short sai_difference(short Cd, short Cs, short Ad, short As) noexcept nogil
     return _lerp(Cs, D, Ad)
 
 @cython.ufunc
-cdef short exclusion(short Cd, short Cs, short Ad, short As) noexcept nogil:
+cdef short exclude(short Cd, short Cs, short Ad, short As) noexcept nogil:
     return (_mul(Cs, Ad) + _mul(Cd, As) - _mul(_mul(range2, Cs), Cd)) + _comp2(Cd, Cs, Ad, As)
 
 @cython.ufunc
@@ -466,29 +466,29 @@ cdef Color luminosity_nonseperable(short Cd_r, short Cd_g, short Cd_b, short Cs_
 
 luminosity = nonseperable(luminosity_nonseperable)
 
-cdef inline Color darker_color_straight(Color Cd, Color Cs) noexcept nogil:
+cdef inline Color darken_color_straight(Color Cd, Color Cs) noexcept nogil:
     if _lum(Cs) < _lum(Cd):
         return Cs
     else:
         return Cd
 
 @cython.ufunc
-cdef Color darker_color_nonseperable(short Cd_r, short Cd_g, short Cd_b, short Cs_r, short Cs_g, short Cs_b, short Ad, short As) noexcept nogil:
-    return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, darker_color_straight)
+cdef Color darken_color_nonseperable(short Cd_r, short Cd_g, short Cd_b, short Cs_r, short Cs_g, short Cs_b, short Ad, short As) noexcept nogil:
+    return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, darken_color_straight)
 
-darker_color = nonseperable(darker_color_nonseperable)
+darken_color = nonseperable(darken_color_nonseperable)
 
-cdef inline Color lighter_color_straight(Color Cd, Color Cs) noexcept nogil:
+cdef inline Color lighten_color_straight(Color Cd, Color Cs) noexcept nogil:
     if _lum(Cs) > _lum(Cd):
         return Cs
     else:
         return Cd
 
 @cython.ufunc
-cdef Color lighter_color_nonseperable(short Cd_r, short Cd_g, short Cd_b, short Cs_r, short Cs_g, short Cs_b, short Ad, short As) noexcept nogil:
-    return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, lighter_color_straight)
+cdef Color lighten_color_nonseperable(short Cd_r, short Cd_g, short Cd_b, short Cs_r, short Cs_g, short Cs_b, short Ad, short As) noexcept nogil:
+    return _premul_nonseperable((Cd_r, Cd_g, Cd_b), (Cs_r, Cs_g, Cs_b), Ad, As, lighten_color_straight)
 
-lighter_color = nonseperable(lighter_color_nonseperable)
+lighten_color = nonseperable(lighten_color_nonseperable)
 
 blend_modes = {
     BlendMode.NORMAL: normal,
@@ -507,10 +507,10 @@ blend_modes = {
     BlendMode.HARD_MIX: ts_hard_mix,
     BlendMode.DARKEN: darken,
     BlendMode.LIGHTEN: lighten,
-    BlendMode.DARKER_COLOR: darker_color,
-    BlendMode.LIGHTER_COLOR: lighter_color,
+    BlendMode.DARKER_COLOR: darken_color,
+    BlendMode.LIGHTER_COLOR: lighten_color,
     BlendMode.DIFFERENCE: ts_difference,
-    BlendMode.EXCLUSION: exclusion,
+    BlendMode.EXCLUSION: exclude,
     BlendMode.SUBTRACT: subtract,
     BlendMode.DIVIDE: divide,
     BlendMode.HUE: hue,
