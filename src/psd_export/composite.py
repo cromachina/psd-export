@@ -10,14 +10,8 @@ from psd_tools import PSDImage
 from psd_tools.api.layers import Layer
 from psd_tools.constants import BlendMode, Clipping, Tag
 
-from . import util, blendfuncs_short, blendfuncs_float
+from . import util, blendfuncs
 from .util import peval
-
-blendfuncs = blendfuncs_short
-
-def load_blendfuncs(short_mode):
-    global blendfuncs
-    blendfuncs = blendfuncs_short if short_mode else blendfuncs_float
 
 class WrappedLayer():
     def __init__(self, layer:Layer, clip_layers=[], parent:WrappedLayer=None):
@@ -272,7 +266,7 @@ async def get_pixel_layer_data(layer:WrappedLayer, size, offset):
 async def get_mask_data(layer:WrappedLayer, size, offset):
     mask = layer.layer.mask
     if mask and not mask.disabled:
-        return await get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), blendfuncs.from_bytes(mask.background_color))
+        return await get_padded_data(layer, 'mask', size, offset, (mask.left, mask.top), blendfuncs.from_bytes(np.ubyte(mask.background_color)))
     else:
         return None
 
@@ -309,8 +303,8 @@ def get_sai_special_mode_opacity(layer:Layer):
     tsly = blocks.get(Tag.TRANSPARENCY_SHAPES_LAYER, None)
     iOpa = blocks.get(Tag.BLEND_FILL_OPACITY, None)
     if tsly and iOpa and tsly.data == 0:
-        return blendfuncs.from_bytes(iOpa.data), True
-    return blendfuncs.from_bytes(layer.opacity), False
+        return blendfuncs.from_bytes(np.ubyte(iOpa.data)), True
+    return blendfuncs.from_bytes(np.ubyte(layer.opacity)), False
 
 async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, offset, backdrop=None):
     if backdrop:
@@ -436,7 +430,8 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                 mask_src = await get_mask_data(sublayer, size, offset)
 
                 def main_blend():
-                    nonlocal color_src, color_dst, alpha_dst
+                    nonlocal color_dst, alpha_dst
+
                     # Apply opacity (fill) before blending otherwise premultiplied blending of special modes will not work correctly.
                     blendfuncs.mul(alpha_src, opacity, out=alpha_src)
 
@@ -446,7 +441,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     # Run the blend operation.
                     blend_func = blendfuncs.get_blend_func(blend_mode, special_mode)
                     with np.errstate(divide='ignore', invalid='ignore'):
-                        color_src = blend_func(color_dst, color_src, alpha_dst, alpha_src)
+                        blend_func(color_dst, color_src, alpha_dst, alpha_src, out=color_src)
 
                     # Premultiplied blending may cause out-of-range values, so it must be clipped.
                     if blend_mode != BlendMode.NORMAL:
@@ -463,7 +458,7 @@ async def composite_group_layer(layer:WrappedLayer | list[WrappedLayer], size, o
                     # Finally we can intersect the mask with the alpha_src and blend the alpha_dst together.
                     if mask_src is not None:
                         blendfuncs.mul(alpha_src, mask_src, out=alpha_src)
-                    alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src)
+                    alpha_dst = blendfuncs.normal_alpha(alpha_dst, alpha_src, out=alpha_src)
                 await peval(main_blend)
 
             if not is_counter_zero(sublayer):

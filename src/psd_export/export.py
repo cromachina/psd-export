@@ -218,8 +218,6 @@ arg_parser.add_argument('--output-type', default='png', type=str,
     help='Output type, whatever is supported by OpenCV, for example: png, jpg, webp, tiff.')
 arg_parser.add_argument('--file-name', default='*.psd', type=str,
     help='PSD files to process; can use a glob pattern.')
-arg_parser.add_argument('--use-floats', action='store_true', default=False,
-    help='Use float computation instead of integers. Slower and uses more memory; Used for testing and verification.')
 
 async def async_main():
     logging.basicConfig(
@@ -227,9 +225,6 @@ async def async_main():
         level=logging.INFO
     )
     args = arg_parser.parse_args()
-    if args.use_floats:
-        util.load_blendfuncs(False)
-        composite.load_blendfuncs(False)
     filters.mosaic_factor_default = args.mosaic_factor
     start = time.perf_counter()
     files = list(glob.iglob(args.file_name))

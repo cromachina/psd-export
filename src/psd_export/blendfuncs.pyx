@@ -20,23 +20,21 @@ cdef short range2 = (rangemax * 2)
 cdef short range4 = (rangemax * 4)
 cdef short range12 = (rangemax * 12)
 cdef short range16 = (rangemax * 16)
-cdef short gamma_r = 0x1332 # 0.30
-cdef short gamma_g = 0x25c1 # 0.59
-cdef short gamma_b = 0x070a # 0.11
+cdef short gamma_r = <short>(rangemax * 0.30)
+cdef short gamma_g = <short>(rangemax * 0.59)
+cdef short gamma_b = <short>(rangemax * 0.11)
 cdef short[::1] sqrt_lut = (np.sqrt(np.arange(0, rangemax + 1, dtype=np.float32) / rangemax) * rangemax).astype(np.int16)
 
 def get_max():
     return rangemax
 
 @cython.ufunc
-cdef inline short _from_bytes(short val):
+cdef short from_bytes(unsigned char val) noexcept nogil:
     return (val << 6) | (val >> 2)
 
-def from_bytes(val):
-    return _from_bytes(dtype(val))
-
-def to_bytes(data):
-    return (data >> 6).astype(np.uint8)
+@cython.ufunc
+cdef unsigned char to_bytes(short data) noexcept nogil:
+    return data >> 6
 
 def parse_array(data, depth, lut: np.ndarray | None = None):
     if depth == 8:
@@ -154,10 +152,10 @@ def ensure_array(D, S):
 
 def nonseperable(func):
     @cython.wraparound(True)
-    def wrap(Cd, Cs, Ad, As):
+    def wrap(Cd, Cs, Ad, As, out=None):
         Cd = ensure_array(Cd, Cs)
         Ad = ensure_array(Ad, As)
-        return np.dstack(func(Cd[:,:,0], Cd[:,:,1], Cd[:,:,2], Cs[:,:,0], Cs[:,:,1], Cs[:,:,2], Ad.reshape(Ad.shape[:-1]), As.reshape(As.shape[:-1])))
+        return np.stack(func(Cd[:,:,0], Cd[:,:,1], Cd[:,:,2], Cs[:,:,0], Cs[:,:,1], Cs[:,:,2], Ad.reshape(Ad.shape[:-1]), As.reshape(As.shape[:-1])), axis=2, out=out)
     return wrap
 
 @cython.ufunc
@@ -171,8 +169,9 @@ cdef inline short screen_straight(short Cd, short Cs) noexcept nogil:
 cdef short screen(short Cd, short Cs, short Ad, short As) noexcept nogil:
     return screen_straight(Cd, Cs)
 
-def overlay(Cd, Cs, Ad, As):
-    return hard_light(Cs, Cd, As, Ad)
+@cython.ufunc
+cdef short overlay(short Cd, short Cs, short Ad, short As) noexcept nogil:
+    return _premul(Cs, Cd, As, Ad, hard_light_straight)
 
 @cython.ufunc
 cdef short sai_linear_burn(short Cd, short Cs, short Ad, short As) noexcept nogil:

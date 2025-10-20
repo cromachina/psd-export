@@ -17,9 +17,6 @@
       project = pyproject.project;
       fixString = x: lib.strings.toLower (builtins.replaceStrings ["_"] ["-"] x);
       getPkgs = x: lib.attrsets.attrVals (builtins.map fixString x) pyPkgs;
-      envarg = ''
-        export NIX_ENFORCE_NO_NATIVE=0
-      '';
       package = pyPkgs.buildPythonPackage {
         pname = project.name;
         version = project.version;
@@ -27,14 +24,12 @@
         src = ./.;
         build-system = getPkgs pyproject.build-system.requires;
         dependencies = getPkgs project.dependencies ++ [ pkgs.ffmpeg-full ];
-        postFixup = ''
-          ${envarg}
-        '';
       };
       editablePackage = pyPkgs.mkPythonEditablePackage {
         pname = project.name;
         inherit (project) version scripts;
         root = "$PWD/src";
+        dependencies = getPkgs project.optional-dependencies.dev;
       };
     in
     {
@@ -48,7 +43,6 @@
           pyPkgs.build
         ];
         shellHook = ''
-          ${envarg}
           build-cython() { python setup.py build_ext -j 4 --inplace; }
         '';
       };
