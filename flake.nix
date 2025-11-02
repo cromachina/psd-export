@@ -29,7 +29,7 @@
         pname = project.name;
         inherit (project) version scripts;
         root = "$PWD/src";
-        dependencies = getPkgs project.optional-dependencies.dev;
+        dependencies = getPkgs project.optional-dependencies.dev or [];
       };
     in
     {
